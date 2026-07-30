@@ -1,0 +1,114 @@
+<style>
+  .de-root{--pitch:#1B4332;--gold:#C9A24B;--danger:#B3413A;--bg:#0D1512;--surf1:#152119;--surf2:#1C2A21;--border:#2A3A2F;--txt:#EDEFEA;--txt2:#9AA69E;--txt3:#6B776F;--win:#8FD9AC;--lose:#E08F8F;font-family:system-ui,-apple-system,sans-serif;}
+  .de-root *{box-sizing:border-box;}
+  .de-tabbtn{background:none;border:none;color:var(--txt2);font-family:'Oswald',sans-serif;font-size:14px;letter-spacing:0.03em;padding:10px 4px;cursor:pointer;border-bottom:2px solid transparent;white-space:nowrap;}
+  .de-tabbtn.active{color:var(--txt);border-bottom-color:var(--gold);}
+  .de-card{background:var(--surf1);border:1px solid var(--border);border-radius:10px;margin-bottom:10px;overflow:hidden;}
+  .de-btn{border:1px solid var(--border);border-radius:6px;padding:6px 12px;font-size:12px;background:none;color:var(--txt);cursor:pointer;}
+  .de-btn:hover{background:var(--surf2);}
+  .de-badge{font-size:11px;padding:3px 8px;border-radius:5px;font-weight:600;letter-spacing:0.02em;}
+  .de-log{background:var(--surf2);border:1px solid var(--border);border-radius:8px;padding:10px;font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--txt2);max-height:160px;overflow-y:auto;white-space:pre-wrap;}
+</style>
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<div class="de-root" style="background:var(--bg);color:var(--txt);padding:1.25rem;border-radius:14px;max-width:720px;">
+
+<h2 class="sr-only">TRX: consulta automática de previsões de empate</h2>
+
+<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem">
+  <svg width="40" height="40" viewBox="0 0 40 40" aria-label="TRX">
+    <circle cx="20" cy="20" r="19" fill="none" stroke="#C9A24B" stroke-width="1.5"/>
+    <path d="M9 25 L16 14 L21 20 L31 9" fill="none" stroke="#C9A24B" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="31" cy="9" r="1.8" fill="#C9A24B"/>
+    <text x="20" y="34" text-anchor="middle" font-family="Oswald,sans-serif" font-size="8" font-weight="600" fill="#C9A24B" letter-spacing="1">TRX</text>
+  </svg>
+  <button class="de-btn" id="de-refresh"><i class="ti ti-refresh" style="font-size:14px;vertical-align:-2px;margin-right:4px" aria-hidden="true"></i>Consultar agora</button>
+</div>
+
+<div style="font-size:12px;color:var(--txt3);margin-bottom:10px" id="de-status">Ainda não consultado. Carrega em "Consultar agora".</div>
+
+<div id="de-results"></div>
+
+<div style="margin-top:16px">
+  <div style="font-size:11px;color:var(--txt3);letter-spacing:0.05em;text-transform:uppercase;margin-bottom:6px">Registo técnico (para diagnóstico)</div>
+  <div class="de-log" id="de-log">À espera...</div>
+</div>
+
+</div>
+<script>
+(function(){
+const log = (msg)=>{ const el=document.getElementById('de-log'); el.textContent += '\n'+msg; el.scrollTop = el.scrollHeight; console.log('[TRX]', msg); };
+const status = (msg)=>{ document.getElementById('de-status').textContent = msg; };
+
+const PROXY = 'https://api.allorigins.win/raw?url=';
+const FOREBET_URL = 'https://www.forebet.com/en/football-tips-and-predictions-for-tomorrow';
+
+async function fetchViaProxy(targetUrl){
+  const proxied = PROXY + encodeURIComponent(targetUrl);
+  log('A pedir: ' + proxied);
+  const resp = await fetch(proxied);
+  log('Status HTTP: ' + resp.status);
+  if(!resp.ok) throw new Error('Proxy devolveu status ' + resp.status);
+  const text = await resp.text();
+  log('Tamanho da resposta: ' + text.length + ' caracteres');
+  return text;
+}
+
+function parseForebet(html){
+  // Tentativa de extração: procura padrões "Equipa1 - Equipa2" seguidos de números (prob%) e odds.
+  // Isto é uma estimativa - a estrutura real do HTML pode não corresponder.
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  const bodyText = doc.body ? doc.body.innerText : '';
+  log('innerText extraído: ' + bodyText.length + ' caracteres');
+
+  const results = [];
+  // Tenta encontrar linhas de tabela com jogos (heurística: procura por "vs" ou "-" entre nomes de equipas maiúsculas)
+  const rows = doc.querySelectorAll('tr, .rcnt, .schema, [class*="match"]');
+  log('Elementos candidatos encontrados: ' + rows.length);
+
+  rows.forEach(row=>{
+    const t = row.textContent.trim();
+    if(t.length > 5 && t.length < 300){
+      // guarda amostra bruta para inspeção manual, já que não temos certeza da estrutura
+      if(results.length < 30) results.push(t.replace(/\s+/g,' '));
+    }
+  });
+
+  return results;
+}
+
+async function runConsulta(){
+  status('A consultar Forebet via proxy...');
+  document.getElementById('de-log').textContent = '';
+  document.getElementById('de-results').innerHTML = '';
+  try{
+    const html = await fetchViaProxy(FOREBET_URL);
+    const amostras = parseForebet(html);
+    if(amostras.length === 0){
+      status('Consulta respondeu, mas não consegui identificar jogos com o parsing atual.');
+      log('Nenhuma linha candidata encontrada. A estrutura real da página é diferente do que assumi.');
+      document.getElementById('de-results').innerHTML = `
+        <div class="de-card" style="padding:14px">
+          <div style="font-size:13px;color:var(--lose)">Não consegui extrair jogos automaticamente desta vez.</div>
+          <div style="font-size:12px;color:var(--txt2);margin-top:6px">Copia o conteúdo do "Registo técnico" acima e envia-me — ajusto o parsing com base nisso.</div>
+        </div>`;
+      return;
+    }
+    status('Encontradas ' + amostras.length + ' linhas candidatas. Revê no registo técnico e confirma comigo se fazem sentido antes de confiarmos nos scores.');
+    document.getElementById('de-results').innerHTML = amostras.map(a=>`
+      <div class="de-card" style="padding:10px 14px;font-size:12px">${a}</div>
+    `).join('');
+    log('Extração concluída. NOTA: estes são candidatos brutos, ainda não processados pelo motor de score.');
+  }catch(err){
+    status('Falhou a consulta automática.');
+    log('ERRO: ' + err.message);
+    document.getElementById('de-results').innerHTML = `
+      <div class="de-card" style="padding:14px">
+        <div style="font-size:13px;color:var(--lose)">A consulta automática falhou.</div>
+        <div style="font-size:12px;color:var(--txt2);margin-top:6px">Motivo provável: o proxy gratuito pode estar em baixo, ou o Forebet bloqueou o pedido. Copia a mensagem de erro no registo técnico e envia-me para eu ajustar.</div>
+      </div>`;
+  }
+}
+
+document.getElementById('de-refresh').addEventListener('click', runConsulta);
+})();
+</script>
