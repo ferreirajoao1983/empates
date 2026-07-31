@@ -1,18 +1,15 @@
 <style>
-  .de-root{--pitch:#1B4332;--gold:#C9A24B;--danger:#B3413A;--bg:#0D1512;--surf1:#152119;--surf2:#1C2A21;--border:#2A3A2F;--txt:#EDEFEA;--txt2:#9AA69E;--txt3:#6B776F;--win:#8FD9AC;--lose:#E08F8F;font-family:system-ui,-apple-system,sans-serif;}
+  .de-root{--gold:#C9A24B;--bg:#0D1512;--surf1:#152119;--surf2:#1C2A21;--border:#2A3A2F;--txt:#EDEFEA;--txt2:#9AA69E;--txt3:#6B776F;--win:#8FD9AC;--lose:#E08F8F;font-family:system-ui,-apple-system,sans-serif;}
   .de-root *{box-sizing:border-box;}
-  .de-tabbtn{background:none;border:none;color:var(--txt2);font-family:'Oswald',sans-serif;font-size:14px;letter-spacing:0.03em;padding:10px 4px;cursor:pointer;border-bottom:2px solid transparent;white-space:nowrap;}
-  .de-tabbtn.active{color:var(--txt);border-bottom-color:var(--gold);}
-  .de-card{background:var(--surf1);border:1px solid var(--border);border-radius:10px;margin-bottom:10px;overflow:hidden;}
-  .de-btn{border:1px solid var(--border);border-radius:6px;padding:6px 12px;font-size:12px;background:none;color:var(--txt);cursor:pointer;}
-  .de-btn:hover{background:var(--surf2);}
+  .de-btn{border:1px solid #2A3A2F;border-radius:6px;padding:8px 14px;font-size:13px;background:none;color:#EDEFEA;cursor:pointer;}
+  .de-btn:hover{background:#1C2A21;}
+  .de-card{background:#152119;border:1px solid #2A3A2F;border-radius:10px;margin-bottom:10px;overflow:hidden;}
   .de-badge{font-size:11px;padding:3px 8px;border-radius:5px;font-weight:600;letter-spacing:0.02em;}
-  .de-log{background:var(--surf2);border:1px solid var(--border);border-radius:8px;padding:10px;font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--txt2);max-height:160px;overflow-y:auto;white-space:pre-wrap;}
+  .de-log{background:#1C2A21;border:1px solid #2A3A2F;border-radius:8px;padding:10px;font-family:monospace;font-size:10px;color:#9AA69E;max-height:140px;overflow-y:auto;white-space:pre-wrap;}
 </style>
-<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <div class="de-root" style="background:var(--bg);color:var(--txt);padding:1.25rem;border-radius:14px;max-width:720px;">
-
-<h2 class="sr-only">TRX: consulta automática de previsões de empate</h2>
+<h2 class="sr-only">TRX: consulta automática de jogos com tendência de empate</h2>
 
 <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem">
   <svg width="40" height="40" viewBox="0 0 40 40" aria-label="TRX">
@@ -21,91 +18,137 @@
     <circle cx="31" cy="9" r="1.8" fill="#C9A24B"/>
     <text x="20" y="34" text-anchor="middle" font-family="Oswald,sans-serif" font-size="8" font-weight="600" fill="#C9A24B" letter-spacing="1">TRX</text>
   </svg>
-  <button class="de-btn" id="de-refresh"><i class="ti ti-refresh" style="font-size:14px;vertical-align:-2px;margin-right:4px" aria-hidden="true"></i>Consultar agora</button>
+  <button class="de-btn" id="de-refresh">Consultar jogos de amanhã</button>
 </div>
 
-<div style="font-size:12px;color:var(--txt3);margin-bottom:10px" id="de-status">Ainda não consultado. Carrega em "Consultar agora".</div>
-
+<div style="font-size:12px;color:var(--txt3);margin-bottom:10px" id="de-status">Carrega em "Consultar jogos de amanhã" para começar.</div>
 <div id="de-results"></div>
-
-<div style="margin-top:16px">
-  <div style="font-size:11px;color:var(--txt3);letter-spacing:0.05em;text-transform:uppercase;margin-bottom:6px">Registo técnico (para diagnóstico)</div>
-  <div class="de-log" id="de-log">À espera...</div>
-</div>
-
+<details style="margin-top:16px">
+  <summary style="font-size:11px;color:var(--txt3);cursor:pointer">Registo técnico</summary>
+  <div class="de-log" id="de-log" style="margin-top:6px">À espera...</div>
+</details>
 </div>
 <script>
 (function(){
-const log = (msg)=>{ const el=document.getElementById('de-log'); el.textContent += '\n'+msg; el.scrollTop = el.scrollHeight; console.log('[TRX]', msg); };
+const log = (msg)=>{ const el=document.getElementById('de-log'); el.textContent += '\n'+msg; el.scrollTop = el.scrollHeight; };
 const status = (msg)=>{ document.getElementById('de-status').textContent = msg; };
 
-const PROXY = 'https://api.allorigins.win/raw?url=';
-const FOREBET_URL = 'https://www.forebet.com/en/football-tips-and-predictions-for-tomorrow';
+const PROXIES = [
+  (t)=>'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(t),
+  (t)=>'https://corsproxy.io/?url=' + encodeURIComponent(t),
+  (t)=>'https://api.allorigins.win/raw?url=' + encodeURIComponent(t),
+];
 
-async function fetchViaProxy(targetUrl){
-  const proxied = PROXY + encodeURIComponent(targetUrl);
-  log('A pedir: ' + proxied);
-  const resp = await fetch(proxied);
-  log('Status HTTP: ' + resp.status);
-  if(!resp.ok) throw new Error('Proxy devolveu status ' + resp.status);
-  const text = await resp.text();
-  log('Tamanho da resposta: ' + text.length + ' caracteres');
-  return text;
+async function fetchComFallback(targetUrl, timeoutMs){
+  for(const proxyFn of PROXIES){
+    const url = proxyFn(targetUrl);
+    log('A tentar: ' + url);
+    try{
+      const fetchPromise = fetch(url);
+      const timeoutPromise = new Promise((_, reject)=> setTimeout(()=>reject(new Error('tempo esgotado')), timeoutMs));
+      const resp = await Promise.race([fetchPromise, timeoutPromise]);
+      if(!resp.ok){ log('status ' + resp.status + ', próximo proxy'); continue; }
+      const text = await resp.text();
+      if(text.length < 1000){ log('resposta pequena demais, próximo proxy'); continue; }
+      log('Sucesso: ' + text.length + ' caracteres');
+      return text;
+    }catch(err){ log('falhou: ' + err.message + ', próximo proxy'); }
+  }
+  throw new Error('Todos os proxies falharam. Tenta novamente daqui a pouco.');
 }
 
-function parseForebet(html){
-  // Tentativa de extração: procura padrões "Equipa1 - Equipa2" seguidos de números (prob%) e odds.
-  // Isto é uma estimativa - a estrutura real do HTML pode não corresponder.
-  const doc = new DOMParser().parseFromString(html, 'text/html');
-  const bodyText = doc.body ? doc.body.innerText : '';
-  log('innerText extraído: ' + bodyText.length + ' caracteres');
+function parseForebetBlock(el){
+  const homeTeam = el.querySelector('.homeTeam')?.textContent.trim() || '?';
+  const awayTeam = el.querySelector('.awayTeam')?.textContent.trim() || '?';
+  const dateAttr = el.querySelector('time[itemprop="startDate"]')?.getAttribute('datetime') || '';
+  const dateText = el.querySelector('.date_bah')?.textContent.trim() || '';
+  const flagImg = el.querySelector('.stcn img.flsc');
+  let country='', league='';
+  if(flagImg){
+    const onclick = flagImg.getAttribute('onclick')||'';
+    const m = onclick.match(/getstag\(this,\d+,'([^']+)','([^']+)'/);
+    if(m){ country=m[1]; league=m[2]; }
+  }
+  const fprcSpans = el.querySelectorAll('.fprc > span');
+  const toNum = (s)=>{ const n = parseFloat(s); return isNaN(n)?null:n; };
+  const pHome = fprcSpans[0] ? toNum(fprcSpans[0].textContent) : null;
+  const pDraw = fprcSpans[1] ? toNum(fprcSpans[1].textContent) : null;
+  const pAway = fprcSpans[2] ? toNum(fprcSpans[2].textContent) : null;
+  const avgGoalsEl = el.querySelector('.avg_sc.tabonly');
+  const avgGoals = avgGoalsEl ? toNum(avgGoalsEl.textContent) : null;
+  const exScoreEl = el.querySelector('.ex_sc.tabonly');
+  const exScore = exScoreEl ? exScoreEl.textContent.trim() : null;
+  const haoddSpans = el.querySelectorAll('.bigOnly .haodd > span');
+  const oddHome = haoddSpans[0] ? toNum(haoddSpans[0].textContent) : null;
+  const oddDraw = haoddSpans[1] ? toNum(haoddSpans[1].textContent) : null;
+  const oddAway = haoddSpans[2] ? toNum(haoddSpans[2].textContent) : null;
+  return {homeTeam,awayTeam,dateAttr,dateText,country,league,pHome,pDraw,pAway,avgGoals,exScore,oddHome,oddDraw,oddAway};
+}
 
-  const results = [];
-  // Tenta encontrar linhas de tabela com jogos (heurística: procura por "vs" ou "-" entre nomes de equipas maiúsculas)
-  const rows = doc.querySelectorAll('tr, .rcnt, .schema, [class*="match"]');
-  log('Elementos candidatos encontrados: ' + rows.length);
+function scoreJogo(j){
+  if(j.oddDraw===null || j.pHome===null) return {score:null, veredito:'SEM DADOS'};
+  let score = 0;
+  if(j.oddDraw>=3.0 && j.oddDraw<=3.8) score += 6;
+  else if(j.oddDraw>3.8 && j.oddDraw<=4.5) score += 2;
+  else if(j.oddDraw<3.0) score += 1;
+  const gap = Math.abs(j.pHome - j.pAway);
+  if(gap<=10) score += 2; else if(gap<=20) score += 1;
+  if(j.pDraw!==null && j.pDraw>=28) score += 2;
+  score = Math.min(10, score);
+  let veredito, postura;
+  if(score>=7){ veredito='INDICADO'; postura='APOSTAR PRÉ MATCH'; }
+  else if(score>=5){ veredito='OBSERVAR'; postura='OBSERVAR / LIVE'; }
+  else { veredito='NÃO INDICADO'; postura='EVITAR'; }
+  return {score, veredito, postura};
+}
 
-  rows.forEach(row=>{
-    const t = row.textContent.trim();
-    if(t.length > 5 && t.length < 300){
-      // guarda amostra bruta para inspeção manual, já que não temos certeza da estrutura
-      if(results.length < 30) results.push(t.replace(/\s+/g,' '));
-    }
-  });
-
-  return results;
+function scoreColor(v){
+  if(v==='INDICADO') return {bg:'#1D4D33',tx:'#8FD9AC'};
+  if(v==='OBSERVAR') return {bg:'#4D3E1D',tx:'#E0BE7A'};
+  if(v==='SEM DADOS') return {bg:'#2A3A2F',tx:'#9AA69E'};
+  return {bg:'#4D1D1D',tx:'#E08F8F'};
 }
 
 async function runConsulta(){
-  status('A consultar Forebet via proxy...');
+  status('A ligar ao Forebet (pode demorar 10-20 segundos)...');
   document.getElementById('de-log').textContent = '';
   document.getElementById('de-results').innerHTML = '';
   try{
-    const html = await fetchViaProxy(FOREBET_URL);
-    const amostras = parseForebet(html);
-    if(amostras.length === 0){
-      status('Consulta respondeu, mas não consegui identificar jogos com o parsing atual.');
-      log('Nenhuma linha candidata encontrada. A estrutura real da página é diferente do que assumi.');
-      document.getElementById('de-results').innerHTML = `
-        <div class="de-card" style="padding:14px">
-          <div style="font-size:13px;color:var(--lose)">Não consegui extrair jogos automaticamente desta vez.</div>
-          <div style="font-size:12px;color:var(--txt2);margin-top:6px">Copia o conteúdo do "Registo técnico" acima e envia-me — ajusto o parsing com base nisso.</div>
-        </div>`;
+    const html = await fetchComFallback('https://www.forebet.com/en/football-tips-and-predictions-for-tomorrow', 12000);
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    const blocos = Array.from(doc.querySelectorAll('.rcnt'));
+    log('Jogos encontrados na página: ' + blocos.length);
+    let jogos = blocos.map(parseForebetBlock).map(j=>({...j, ...scoreJogo(j)}));
+    jogos = jogos.filter(j=>j.score!==null);
+    jogos.sort((a,b)=>b.score-a.score);
+
+    status(jogos.length + ' jogos analisados. A mostrar por ordem de tendência de empate.');
+
+    if(jogos.length===0){
+      document.getElementById('de-results').innerHTML = '<div class="de-card" style="padding:14px;font-size:13px;color:var(--txt2)">Nenhum jogo com odds disponíveis encontrado nesta consulta.</div>';
       return;
     }
-    status('Encontradas ' + amostras.length + ' linhas candidatas. Revê no registo técnico e confirma comigo se fazem sentido antes de confiarmos nos scores.');
-    document.getElementById('de-results').innerHTML = amostras.map(a=>`
-      <div class="de-card" style="padding:10px 14px;font-size:12px">${a}</div>
-    `).join('');
-    log('Extração concluída. NOTA: estes são candidatos brutos, ainda não processados pelo motor de score.');
-  }catch(err){
-    status('Falhou a consulta automática.');
-    log('ERRO: ' + err.message);
-    document.getElementById('de-results').innerHTML = `
-      <div class="de-card" style="padding:14px">
-        <div style="font-size:13px;color:var(--lose)">A consulta automática falhou.</div>
-        <div style="font-size:12px;color:var(--txt2);margin-top:6px">Motivo provável: o proxy gratuito pode estar em baixo, ou o Forebet bloqueou o pedido. Copia a mensagem de erro no registo técnico e envia-me para eu ajustar.</div>
+
+    document.getElementById('de-results').innerHTML = jogos.map(j=>{
+      const c = scoreColor(j.veredito);
+      return `<div class="de-card" style="padding:12px 14px">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:10px">
+          <div style="min-width:0">
+            <div style="font-size:14px;font-weight:500">${j.homeTeam} <span style="color:var(--txt3);font-weight:400">vs</span> ${j.awayTeam}</div>
+            <div style="font-size:11px;color:var(--txt3)">${j.country} · ${j.league} · odd empate ${j.oddDraw!==null?j.oddDraw.toFixed(2):'—'} · empate ${j.pDraw!==null?j.pDraw+'%':'—'}</div>
+          </div>
+          <div style="text-align:right;flex-shrink:0">
+            <div class="de-badge" style="background:${c.bg};color:${c.tx}">${j.veredito}</div>
+            <div style="font-family:'JetBrains Mono',monospace;font-size:16px;margin-top:3px">${j.score}</div>
+          </div>
+        </div>
       </div>`;
+    }).join('');
+
+  }catch(err){
+    status('Falhou.');
+    log('ERRO: ' + err.message);
+    document.getElementById('de-results').innerHTML = '<div class="de-card" style="padding:14px;font-size:13px;color:var(--lose)">Não consegui consultar agora. Tenta novamente — os proxies gratuitos falham de forma intermitente.</div>';
   }
 }
 
