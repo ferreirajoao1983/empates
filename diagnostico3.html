@@ -1,0 +1,61 @@
+<style>
+  body{background:#0D1512;color:#EDEFEA;font-family:system-ui,sans-serif;padding:20px;max-width:700px;margin:0 auto}
+  button{background:#1C2A21;border:1px solid #2A3A2F;color:#EDEFEA;border-radius:6px;padding:10px 14px;font-size:13px;margin:4px 4px 4px 0;cursor:pointer}
+  .log{background:#1C2A21;border:1px solid #2A3A2F;border-radius:8px;padding:10px;font-family:monospace;font-size:10px;white-space:pre-wrap;margin-top:10px;max-height:600px;overflow-y:auto;word-break:break-all}
+  .ok{color:#8FD9AC} .fail{color:#E08F8F} .hdr{color:#C9A24B;font-weight:bold}
+</style>
+<h2 style="font-size:16px">TRX — Extrair um bloco de jogo completo</h2>
+<button id="run">Extrair primeiro jogo (rcnt)</button>
+<div class="log" id="log">Pronto.</div>
+<script>
+const logEl = document.getElementById('log');
+function log(msg, cls){
+  const line = document.createElement('div');
+  if(cls) line.className = cls;
+  line.textContent = msg;
+  logEl.appendChild(line);
+  logEl.scrollTop = logEl.scrollHeight;
+}
+const PROXIES = [
+  {nome:'codetabs', url:(t)=>'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(t)},
+  {nome:'corsproxy.io', url:(t)=>'https://corsproxy.io/?url=' + encodeURIComponent(t)},
+  {nome:'allorigins', url:(t)=>'https://api.allorigins.win/raw?url=' + encodeURIComponent(t)},
+];
+async function fetchComFallback(targetUrl, timeoutMs){
+  for(const proxy of PROXIES){
+    log('A tentar via ' + proxy.nome + '...');
+    try{
+      const controller = new AbortController();
+      const timer = setTimeout(()=>controller.abort(), timeoutMs);
+      const resp = await fetch(proxy.url(targetUrl), {signal: controller.signal});
+      clearTimeout(timer);
+      if(!resp.ok){ log(proxy.nome + ': status ' + resp.status, 'fail'); continue; }
+      const text = await resp.text();
+      if(text.length < 1000){ log(proxy.nome + ': resposta pequena demais', 'fail'); continue; }
+      log(proxy.nome + ' funcionou: ' + text.length + ' caracteres', 'ok');
+      return text;
+    }catch(err){ log(proxy.nome + ' falhou: ' + err.message, 'fail'); }
+  }
+  throw new Error('Todos os proxies falharam.');
+}
+
+document.getElementById('run').onclick = async ()=>{
+  logEl.innerHTML = '';
+  try{
+    const html = await fetchComFallback('https://www.forebet.com/en/football-tips-and-predictions-for-tomorrow', 12000);
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    const blocos = doc.querySelectorAll('.rcnt');
+    log('Blocos .rcnt encontrados: ' + blocos.length);
+    if(blocos.length){
+      log('\n--- HTML completo do primeiro bloco ---', 'hdr');
+      log(blocos[0].outerHTML);
+      if(blocos.length > 1){
+        log('\n--- HTML completo do segundo bloco (para comparar) ---', 'hdr');
+        log(blocos[1].outerHTML);
+      }
+    }
+  }catch(err){
+    log('ERRO: ' + err.message, 'fail');
+  }
+};
+</script>
