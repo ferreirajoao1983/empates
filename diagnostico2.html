@@ -1,0 +1,70 @@
+<style>
+  body{background:#0D1512;color:#EDEFEA;font-family:system-ui,sans-serif;padding:20px;max-width:700px;margin:0 auto}
+  button{background:#1C2A21;border:1px solid #2A3A2F;color:#EDEFEA;border-radius:6px;padding:10px 14px;font-size:13px;margin:4px 4px 4px 0;cursor:pointer}
+  .log{background:#1C2A21;border:1px solid #2A3A2F;border-radius:8px;padding:10px;font-family:monospace;font-size:10px;white-space:pre-wrap;margin-top:10px;max-height:600px;overflow-y:auto;word-break:break-all}
+  .ok{color:#8FD9AC} .fail{color:#E08F8F} .hdr{color:#C9A24B;font-weight:bold}
+</style>
+<h2 style="font-size:16px">TRX — Diagnóstico de estrutura HTML</h2>
+<button id="run">Analisar estrutura do Forebet</button>
+<div class="log" id="log">Pronto.</div>
+<script>
+const logEl = document.getElementById('log');
+function log(msg, cls){
+  const line = document.createElement('div');
+  if(cls) line.className = cls;
+  line.textContent = msg;
+  logEl.appendChild(line);
+  logEl.scrollTop = logEl.scrollHeight;
+}
+
+document.getElementById('run').onclick = async ()=>{
+  logEl.innerHTML = '';
+  log('A pedir via codetabs...');
+  try{
+    const resp = await fetch('https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent('https://www.forebet.com/en/football-tips-and-predictions-for-tomorrow'));
+    const html = await resp.text();
+    log('Recebido: ' + html.length + ' caracteres', 'ok');
+
+    // Candidatos a classes/estruturas comuns em sites de previsões
+    const candidatos = ['rcnt','tr_0','tr_1','fteams','homeTeam','awayTeam','schema','predictions_table','fprc','ex_sm','tnms','forecast-percent','avg_sc'];
+    log('\n--- Contagem de padrões candidatos ---', 'hdr');
+    candidatos.forEach(c=>{
+      const count = (html.match(new RegExp(c,'g'))||[]).length;
+      log(c + ': ' + count + ' ocorrências', count>0?'ok':'fail');
+    });
+
+    // Procura pela primeira ocorrência de "vs" ou padrão de equipas para mostrar contexto real
+    log('\n--- Contexto à volta de possíveis jogos ---', 'hdr');
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    // tenta localizar tabela principal
+    const tables = doc.querySelectorAll('table');
+    log('Nº de tabelas encontradas: ' + tables.length);
+    if(tables.length){
+      // mostra o outerHTML da primeira linha de dados da maior tabela (mais colunas/linhas = provavelmente a de jogos)
+      let maior = tables[0];
+      tables.forEach(t=>{ if(t.querySelectorAll('tr').length > maior.querySelectorAll('tr').length) maior = t; });
+      const trs = maior.querySelectorAll('tr');
+      log('Tabela maior tem ' + trs.length + ' linhas');
+      if(trs.length>1){
+        log('\nHTML da linha 2 (exemplo de jogo, se for isso):', 'hdr');
+        log(trs[1].outerHTML.slice(0,1500));
+      }
+    }
+
+    // procura por divs com muitos filhos (padrão comum para "cards" de jogos)
+    log('\n--- Divs candidatos a "card de jogo" ---', 'hdr');
+    const allDivs = doc.querySelectorAll('div[class]');
+    const classCounts = {};
+    allDivs.forEach(d=>{
+      d.className.split(' ').forEach(c=>{
+        if(c) classCounts[c] = (classCounts[c]||0)+1;
+      });
+    });
+    const sorted = Object.entries(classCounts).sort((a,b)=>b[1]-a[1]).slice(0,25);
+    sorted.forEach(([c,n])=> log(c + ': ' + n));
+
+  }catch(err){
+    log('ERRO: ' + err.message, 'fail');
+  }
+};
+</script>
