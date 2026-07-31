@@ -1,0 +1,46 @@
+<style>
+  body{background:#0D1512;color:#EDEFEA;font-family:system-ui,sans-serif;padding:20px;max-width:700px;margin:0 auto}
+  button{background:#1C2A21;border:1px solid #2A3A2F;color:#EDEFEA;border-radius:6px;padding:10px 14px;font-size:13px;margin:4px 4px 4px 0;cursor:pointer}
+  .log{background:#1C2A21;border:1px solid #2A3A2F;border-radius:8px;padding:10px;font-family:monospace;font-size:11px;white-space:pre-wrap;margin-top:10px;max-height:400px;overflow-y:auto}
+  .ok{color:#8FD9AC} .fail{color:#E08F8F}
+</style>
+<h2 style="font-size:16px">TRX — Diagnóstico de rede</h2>
+<div>
+  <button id="t1">Teste 1: proxy + página simples (example.com)</button><br>
+  <button id="t2">Teste 2: proxy allorigins + Forebet</button><br>
+  <button id="t3">Teste 3: proxy corsproxy.io + Forebet</button><br>
+  <button id="t4">Teste 4: proxy codetabs + Forebet</button><br>
+  <button id="t5">Teste 5: fetch direto ao Forebet (sem proxy)</button><br>
+</div>
+<div class="log" id="log">Pronto para testar.</div>
+<script>
+const logEl = document.getElementById('log');
+function log(msg, cls){ 
+  const line = document.createElement('div');
+  if(cls) line.className = cls;
+  line.textContent = msg;
+  logEl.appendChild(line);
+  logEl.scrollTop = logEl.scrollHeight;
+}
+async function tryFetch(label, url){
+  log('--- ' + label + ' ---');
+  log('URL: ' + url);
+  try{
+    const t0 = Date.now();
+    const resp = await fetch(url);
+    const ms = Date.now()-t0;
+    log('Status: ' + resp.status + ' (' + ms + 'ms)', resp.ok?'ok':'fail');
+    const text = await resp.text();
+    log('Tamanho: ' + text.length + ' caracteres');
+    log('Primeiros 200 caracteres: ' + text.slice(0,200).replace(/\n/g,' '));
+  }catch(err){
+    log('ERRO: ' + err.message, 'fail');
+  }
+}
+
+document.getElementById('t1').onclick = ()=> tryFetch('Proxy + example.com', 'https://api.allorigins.win/raw?url=' + encodeURIComponent('https://example.com'));
+document.getElementById('t2').onclick = ()=> tryFetch('allorigins + Forebet', 'https://api.allorigins.win/raw?url=' + encodeURIComponent('https://www.forebet.com/en/football-tips-and-predictions-for-tomorrow'));
+document.getElementById('t3').onclick = ()=> tryFetch('corsproxy.io + Forebet', 'https://corsproxy.io/?url=' + encodeURIComponent('https://www.forebet.com/en/football-tips-and-predictions-for-tomorrow'));
+document.getElementById('t4').onclick = ()=> tryFetch('codetabs + Forebet', 'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent('https://www.forebet.com/en/football-tips-and-predictions-for-tomorrow'));
+document.getElementById('t5').onclick = ()=> tryFetch('Direto (sem proxy)', 'https://www.forebet.com/en/football-tips-and-predictions-for-tomorrow');
+</script>
