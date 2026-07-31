@@ -17,13 +17,36 @@ function log(msg, cls){
   logEl.scrollTop = logEl.scrollHeight;
 }
 
+const PROXIES = [
+  {nome:'codetabs', url:(t)=>'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(t)},
+  {nome:'corsproxy.io', url:(t)=>'https://corsproxy.io/?url=' + encodeURIComponent(t)},
+  {nome:'allorigins', url:(t)=>'https://api.allorigins.win/raw?url=' + encodeURIComponent(t)},
+];
+
+async function fetchComFallback(targetUrl, timeoutMs){
+  for(const proxy of PROXIES){
+    log('A tentar via ' + proxy.nome + '...');
+    try{
+      const controller = new AbortController();
+      const timer = setTimeout(()=>controller.abort(), timeoutMs);
+      const resp = await fetch(proxy.url(targetUrl), {signal: controller.signal});
+      clearTimeout(timer);
+      if(!resp.ok){ log(proxy.nome + ': status ' + resp.status + ', a tentar próximo', 'fail'); continue; }
+      const text = await resp.text();
+      if(text.length < 1000){ log(proxy.nome + ': resposta demasiado pequena (' + text.length + '), a tentar próximo', 'fail'); continue; }
+      log(proxy.nome + ' funcionou: ' + text.length + ' caracteres', 'ok');
+      return text;
+    }catch(err){
+      log(proxy.nome + ' falhou: ' + err.message + ', a tentar próximo', 'fail');
+    }
+  }
+  throw new Error('Todos os proxies falharam.');
+}
+
 document.getElementById('run').onclick = async ()=>{
   logEl.innerHTML = '';
-  log('A pedir via codetabs...');
   try{
-    const resp = await fetch('https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent('https://www.forebet.com/en/football-tips-and-predictions-for-tomorrow'));
-    const html = await resp.text();
-    log('Recebido: ' + html.length + ' caracteres', 'ok');
+    const html = await fetchComFallback('https://www.forebet.com/en/football-tips-and-predictions-for-tomorrow', 12000);
 
     // Candidatos a classes/estruturas comuns em sites de previsões
     const candidatos = ['rcnt','tr_0','tr_1','fteams','homeTeam','awayTeam','schema','predictions_table','fprc','ex_sm','tnms','forecast-percent','avg_sc'];
