@@ -258,11 +258,12 @@ const LEAGUE_STATS_TOP20 = [
 ];
 function renderLigas(){
   const el = document.getElementById('tab-ligas');
+  const tdStyle = 'color:var(--txt)';
   const ownRows = LEAGUE_STATS_OWN.map(l=>{
     const pct = l.empates/l.jogos*100;
-    return `<tr><td style="padding:7px 0;font-size:13px">${l.liga}</td><td style="padding:7px 0;font-size:13px;text-align:right">${l.jogos}</td><td style="padding:7px 0;font-size:13px;text-align:right">${l.empates}</td><td style="padding:7px 0;font-size:13px;text-align:right;font-family:'JetBrains Mono',monospace">${pct.toFixed(1)}%</td></tr>`;
+    return `<tr><td style="padding:7px 0;font-size:13px;${tdStyle}">${l.liga}</td><td style="padding:7px 0;font-size:13px;text-align:right;${tdStyle}">${l.jogos}</td><td style="padding:7px 0;font-size:13px;text-align:right;${tdStyle}">${l.empates}</td><td style="padding:7px 0;font-size:13px;text-align:right;font-family:'JetBrains Mono',monospace;${tdStyle}">${pct.toFixed(1)}%</td></tr>`;
   }).join('');
-  const topRows = LEAGUE_STATS_TOP20.map((l,i)=>`<tr><td style="padding:5px 0;font-size:12px;color:var(--txt3)">${i+1}.</td><td style="padding:5px 0;font-size:13px">${l.liga}</td><td style="padding:5px 0;font-size:13px;text-align:right;font-family:'JetBrains Mono',monospace">${l.pct.toFixed(2)}%</td></tr>`).join('');
+  const topRows = LEAGUE_STATS_TOP20.map((l,i)=>`<tr><td style="padding:5px 0;font-size:12px;color:var(--txt3)">${i+1}.</td><td style="padding:5px 0;font-size:13px;${tdStyle}">${l.liga}</td><td style="padding:5px 0;font-size:13px;text-align:right;font-family:'JetBrains Mono',monospace;${tdStyle}">${l.pct.toFixed(2)}%</td></tr>`).join('');
   el.innerHTML = `
     <div style="font-size:12px;color:var(--txt3);margin:14px 0 6px">Validado por nós (backtest próprio, com significância estatística testada)</div>
     <table style="width:100%;border-collapse:collapse"><tr style="color:var(--txt3);font-size:11px;text-align:left"><th style="font-weight:400">Liga</th><th style="font-weight:400;text-align:right">Jogos</th><th style="font-weight:400;text-align:right">Empates</th><th style="font-weight:400;text-align:right">%</th></tr>${ownRows}</table>
@@ -314,7 +315,7 @@ async function renderBanca(){
   const rows = ledger.map(l=>{
     saldo += l.retorno; chartPoints.push({y:saldo});
     if(l.tipo==='aposta'){ totalStake+=l.stake; totalRetornoApostas+=l.retorno; betsCount++; if(l.ganhou) wins++; }
-    return `<tr><td style="padding:6px 0;font-size:12px">${l.data}</td><td style="padding:6px 0;font-size:12px">${l.tipo==='aposta'?l.jogo:('Ajuste: '+l.motivo)}</td><td style="padding:6px 0;font-size:12px;text-align:right">${l.tipo==='aposta'?fmt(l.stake):'—'}</td><td style="padding:6px 0;font-size:12px;text-align:right">${l.tipo==='aposta'?l.odd.toFixed(2):'—'}</td><td style="padding:6px 0;font-size:12px;text-align:right;color:${l.retorno>=0?'var(--win)':'var(--lose)'}">${l.retorno>=0?'+':''}€${fmt(l.retorno)}</td><td style="padding:6px 0;font-size:12px;text-align:right;font-family:'JetBrains Mono',monospace">€${fmt(saldo)}</td></tr>`;
+    return `<tr><td style="padding:6px 0;font-size:12px;color:var(--txt)">${l.data}</td><td style="padding:6px 0;font-size:12px;color:var(--txt)">${l.tipo==='aposta'?l.jogo:('Ajuste: '+l.motivo)}</td><td style="padding:6px 0;font-size:12px;text-align:right;color:var(--txt)">${l.tipo==='aposta'?fmt(l.stake):'—'}</td><td style="padding:6px 0;font-size:12px;text-align:right;color:var(--txt)">${l.tipo==='aposta'?l.odd.toFixed(2):'—'}</td><td style="padding:6px 0;font-size:12px;text-align:right;color:${l.retorno>=0?'var(--win)':'var(--lose)'}">${l.retorno>=0?'+':''}€${fmt(l.retorno)}</td><td style="padding:6px 0;font-size:12px;text-align:right;font-family:'JetBrains Mono',monospace;color:var(--txt)">€${fmt(saldo)}</td></tr>`;
   }).join('');
   const roi = totalStake>0 ? (totalRetornoApostas/totalStake*100) : 0;
   const winRate = betsCount>0 ? (wins/betsCount*100) : 0;
