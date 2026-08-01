@@ -1,0 +1,57 @@
+<style>
+  body{background:#0D1512;color:#EDEFEA;font-family:system-ui,sans-serif;padding:20px;max-width:700px;margin:0 auto}
+  button{background:#1C2A21;border:1px solid #2A3A2F;color:#EDEFEA;border-radius:6px;padding:10px 14px;font-size:13px;margin:4px 4px 4px 0;cursor:pointer}
+  .log{background:#1C2A21;border:1px solid #2A3A2F;border-radius:8px;padding:10px;font-family:monospace;font-size:10px;white-space:pre-wrap;margin-top:10px;max-height:600px;overflow-y:auto;word-break:break-all}
+  .ok{color:#8FD9AC} .fail{color:#E08F8F} .hdr{color:#C9A24B;font-weight:bold}
+</style>
+<h2 style="font-size:16px">TRX — Inspecionar all.js</h2>
+<button id="run">Procurar função ltodrows no all.js</button>
+<div class="log" id="log">Pronto.</div>
+<script>
+const logEl = document.getElementById('log');
+function log(msg, cls){ const d=document.createElement('div'); if(cls)d.className=cls; d.textContent=msg; logEl.appendChild(d); logEl.scrollTop=logEl.scrollHeight; }
+const PROXIES = [
+  (t)=>'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(t),
+  (t)=>'https://corsproxy.io/?url=' + encodeURIComponent(t),
+  (t)=>'https://api.allorigins.win/raw?url=' + encodeURIComponent(t),
+];
+async function fetchComFallback(targetUrl, timeoutMs){
+  for(const proxyFn of PROXIES){
+    const url = proxyFn(targetUrl);
+    log('A tentar: ' + url);
+    try{
+      const fetchPromise = fetch(url);
+      const timeoutPromise = new Promise((_, reject)=> setTimeout(()=>reject(new Error('tempo esgotado')), timeoutMs));
+      const resp = await Promise.race([fetchPromise, timeoutPromise]);
+      if(!resp.ok){ log('status ' + resp.status); continue; }
+      const text = await resp.text();
+      if(text.length < 500){ log('resposta pequena demais'); continue; }
+      log('Sucesso: ' + text.length + ' caracteres', 'ok');
+      return text;
+    }catch(err){ log('falhou: ' + err.message); }
+  }
+  throw new Error('Todos os proxies falharam.');
+}
+
+document.getElementById('run').onclick = async ()=>{
+  logEl.innerHTML = '';
+  try{
+    const js = await fetchComFallback('https://www.forebet.com/includes/js/all.js', 15000);
+    const idx = js.indexOf('ltodrows');
+    if(idx>=0){
+      log('Encontrado! Contexto:', 'hdr');
+      log(js.slice(Math.max(0,idx-100), idx+2000));
+    }else{
+      log('Não encontrado em all.js. A tentar stsrt.js...', 'fail');
+      const js2 = await fetchComFallback('https://www.forebet.com/includes/js/stsrt.js', 15000);
+      const idx2 = js2.indexOf('ltodrows');
+      if(idx2>=0){
+        log('Encontrado em stsrt.js! Contexto:', 'hdr');
+        log(js2.slice(Math.max(0,idx2-100), idx2+2000));
+      }else{
+        log('Não encontrado em nenhum dos dois ficheiros.', 'fail');
+      }
+    }
+  }catch(err){ log('ERRO: ' + err.message, 'fail'); }
+};
+</script>
