@@ -1,37 +1,59 @@
 <style>
   .de-root{--gold:#C9A24B;--bg:#0D1512;--surf1:#152119;--surf2:#1C2A21;--border:#2A3A2F;--txt:#EDEFEA;--txt2:#9AA69E;--txt3:#6B776F;--win:#8FD9AC;--lose:#E08F8F;font-family:system-ui,-apple-system,sans-serif;}
   .de-root *{box-sizing:border-box;}
-  .de-btn{border:1px solid #2A3A2F;border-radius:6px;padding:8px 14px;font-size:13px;background:none;color:#EDEFEA;cursor:pointer;}
-  .de-btn:hover{background:#1C2A21;}
-  .de-card{background:#152119;border:1px solid #2A3A2F;border-radius:10px;margin-bottom:10px;overflow:hidden;}
+  .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0;}
+  .de-tabbtn{background:none;border:none;color:var(--txt2);font-family:'Oswald',sans-serif;font-size:14px;letter-spacing:0.03em;padding:10px 4px;cursor:pointer;border-bottom:2px solid transparent;white-space:nowrap;}
+  .de-tabbtn.active{color:var(--txt);border-bottom-color:var(--gold);}
+  .de-btn{border:1px solid var(--border);border-radius:6px;padding:8px 14px;font-size:13px;background:none;color:var(--txt);cursor:pointer;}
+  .de-btn:hover{background:var(--surf2);}
+  .de-card{background:var(--surf1);border:1px solid var(--border);border-radius:10px;margin-bottom:10px;overflow:hidden;}
   .de-badge{font-size:11px;padding:3px 8px;border-radius:5px;font-weight:600;letter-spacing:0.02em;}
-  .de-log{background:#1C2A21;border:1px solid #2A3A2F;border-radius:8px;padding:10px;font-family:monospace;font-size:10px;color:#9AA69E;max-height:140px;overflow-y:auto;white-space:pre-wrap;}
+  .de-input{background:var(--surf2);border:1px solid var(--border);color:var(--txt);border-radius:6px;padding:6px 8px;font-size:13px;width:90px;}
+  .de-log{background:var(--surf2);border:1px solid var(--border);border-radius:8px;padding:10px;font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--txt2);max-height:140px;overflow-y:auto;white-space:pre-wrap;}
 </style>
-<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <div class="de-root" style="background:var(--bg);color:var(--txt);padding:1.25rem;border-radius:14px;max-width:720px;">
 <h2 class="sr-only">TRX: consulta automática de jogos com tendência de empate</h2>
 
-<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem">
+<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;flex-wrap:wrap;gap:8px">
   <svg width="40" height="40" viewBox="0 0 40 40" aria-label="TRX">
     <circle cx="20" cy="20" r="19" fill="none" stroke="#C9A24B" stroke-width="1.5"/>
     <path d="M9 25 L16 14 L21 20 L31 9" fill="none" stroke="#C9A24B" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
     <circle cx="31" cy="9" r="1.8" fill="#C9A24B"/>
     <text x="20" y="34" text-anchor="middle" font-family="Oswald,sans-serif" font-size="8" font-weight="600" fill="#C9A24B" letter-spacing="1">TRX</text>
   </svg>
-  <button class="de-btn" id="de-refresh">Consultar jogos de amanhã</button>
+  <div style="display:flex;gap:14px;border-bottom:1px solid var(--border);overflow-x:auto">
+    <button class="de-tabbtn active" data-tab="jogos">Jogos</button>
+    <button class="de-tabbtn" data-tab="ligas">Ligas</button>
+    <button class="de-tabbtn" data-tab="banca">Banca</button>
+    <button class="de-tabbtn" data-tab="export">Exportar</button>
+  </div>
 </div>
 
-<div style="font-size:12px;color:var(--txt3);margin-bottom:10px" id="de-status">Carrega em "Consultar jogos de amanhã" para começar.</div>
-<div id="de-results"></div>
-<details style="margin-top:16px">
-  <summary style="font-size:11px;color:var(--txt3);cursor:pointer">Registo técnico</summary>
-  <div class="de-log" id="de-log" style="margin-top:6px">À espera...</div>
-</details>
+<div id="tab-jogos">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+    <div style="font-size:12px;color:var(--txt3)" id="de-status">Carrega para consultar os jogos reais de amanhã.</div>
+    <button class="de-btn" id="de-refresh">Consultar amanhã</button>
+  </div>
+  <div id="de-results"></div>
+  <details style="margin-top:14px">
+    <summary style="font-size:11px;color:var(--txt3);cursor:pointer">Registo técnico</summary>
+    <div class="de-log" id="de-log" style="margin-top:6px">À espera...</div>
+  </details>
+</div>
+
+<div id="tab-ligas" style="display:none"></div>
+<div id="tab-banca" style="display:none"></div>
+<div id="tab-export" style="display:none"></div>
+
 </div>
 <script>
 (function(){
 const log = (msg)=>{ const el=document.getElementById('de-log'); el.textContent += '\n'+msg; el.scrollTop = el.scrollHeight; };
 const status = (msg)=>{ document.getElementById('de-status').textContent = msg; };
+function fmt(n){return Number(n).toLocaleString('pt-PT',{minimumFractionDigits:2,maximumFractionDigits:2});}
+
+/* ---------- Consulta ao vivo (Forebet) ---------- */
 
 const PROXIES = [
   (t)=>'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(t),
@@ -69,8 +91,8 @@ function parseForebetBlock(el){
     const m = onclick.match(/getstag\(this,\d+,'([^']+)','([^']+)'/);
     if(m){ country=m[1]; league=m[2]; }
   }
-  const fprcSpans = el.querySelectorAll('.fprc > span');
   const toNum = (s)=>{ const n = parseFloat(s); return isNaN(n)?null:n; };
+  const fprcSpans = el.querySelectorAll('.fprc > span');
   const pHome = fprcSpans[0] ? toNum(fprcSpans[0].textContent) : null;
   const pDraw = fprcSpans[1] ? toNum(fprcSpans[1].textContent) : null;
   const pAway = fprcSpans[2] ? toNum(fprcSpans[2].textContent) : null;
@@ -82,11 +104,12 @@ function parseForebetBlock(el){
   const oddHome = haoddSpans[0] ? toNum(haoddSpans[0].textContent) : null;
   const oddDraw = haoddSpans[1] ? toNum(haoddSpans[1].textContent) : null;
   const oddAway = haoddSpans[2] ? toNum(haoddSpans[2].textContent) : null;
-  return {homeTeam,awayTeam,dateAttr,dateText,country,league,pHome,pDraw,pAway,avgGoals,exScore,oddHome,oddDraw,oddAway};
+  const id = (homeTeam+'_'+awayTeam+'_'+dateAttr).replace(/\s+/g,'-');
+  return {id,homeTeam,awayTeam,dateAttr,dateText,country,league,pHome,pDraw,pAway,avgGoals,exScore,oddHome,oddDraw,oddAway};
 }
 
 function scoreJogo(j){
-  if(j.oddDraw===null || j.pHome===null) return {score:null, veredito:'SEM DADOS'};
+  if(j.oddDraw===null || j.pHome===null) return {score:null, veredito:'SEM DADOS', postura:'A VALIDAR'};
   let score = 0;
   if(j.oddDraw>=3.0 && j.oddDraw<=3.8) score += 6;
   else if(j.oddDraw>3.8 && j.oddDraw<=4.5) score += 2;
@@ -101,13 +124,20 @@ function scoreJogo(j){
   else { veredito='NÃO INDICADO'; postura='EVITAR'; }
   return {score, veredito, postura};
 }
-
 function scoreColor(v){
-  if(v==='INDICADO') return {bg:'#1D4D33',tx:'#8FD9AC'};
+  if(v==='INDICADO') return {bg:'#1D4D33',tx:'var(--win)'};
   if(v==='OBSERVAR') return {bg:'#4D3E1D',tx:'#E0BE7A'};
-  if(v==='SEM DADOS') return {bg:'#2A3A2F',tx:'#9AA69E'};
-  return {bg:'#4D1D1D',tx:'#E08F8F'};
+  if(v==='SEM DADOS') return {bg:'#2A3A2F',tx:'var(--txt2)'};
+  return {bg:'#4D1D1D',tx:'var(--lose)'};
 }
+
+let JOGOS_ATUAIS = [];
+
+async function getBet(id){
+  try{ const r = await window.storage.get('aposta:'+id); return r? JSON.parse(r.value): {selecionado:false,stake:'',odd:''}; }
+  catch(e){ return {selecionado:false,stake:'',odd:''}; }
+}
+async function setBet(id,val){ try{ await window.storage.set('aposta:'+id, JSON.stringify(val)); }catch(e){} }
 
 async function runConsulta(){
   status('A ligar ao Forebet (pode demorar 10-20 segundos)...');
@@ -121,30 +151,14 @@ async function runConsulta(){
     let jogos = blocos.map(parseForebetBlock).map(j=>({...j, ...scoreJogo(j)}));
     jogos = jogos.filter(j=>j.score!==null);
     jogos.sort((a,b)=>b.score-a.score);
+    JOGOS_ATUAIS = jogos;
 
-    status(jogos.length + ' jogos analisados. A mostrar por ordem de tendência de empate.');
-
+    status(jogos.length + ' jogos analisados (só os que têm odd de empate disponível), ordenados por tendência de empate.');
     if(jogos.length===0){
-      document.getElementById('de-results').innerHTML = '<div class="de-card" style="padding:14px;font-size:13px;color:var(--txt2)">Nenhum jogo com odds disponíveis encontrado nesta consulta.</div>';
+      document.getElementById('de-results').innerHTML = '<div class="de-card" style="padding:14px;font-size:13px;color:var(--txt2)">Nenhum jogo com odds disponíveis encontrado.</div>';
       return;
     }
-
-    document.getElementById('de-results').innerHTML = jogos.map(j=>{
-      const c = scoreColor(j.veredito);
-      return `<div class="de-card" style="padding:12px 14px">
-        <div style="display:flex;justify-content:space-between;align-items:center;gap:10px">
-          <div style="min-width:0">
-            <div style="font-size:14px;font-weight:500">${j.homeTeam} <span style="color:var(--txt3);font-weight:400">vs</span> ${j.awayTeam}</div>
-            <div style="font-size:11px;color:var(--txt3)">${j.country} · ${j.league} · odd empate ${j.oddDraw!==null?j.oddDraw.toFixed(2):'—'} · empate ${j.pDraw!==null?j.pDraw+'%':'—'}</div>
-          </div>
-          <div style="text-align:right;flex-shrink:0">
-            <div class="de-badge" style="background:${c.bg};color:${c.tx}">${j.veredito}</div>
-            <div style="font-family:'JetBrains Mono',monospace;font-size:16px;margin-top:3px">${j.score}</div>
-          </div>
-        </div>
-      </div>`;
-    }).join('');
-
+    await renderJogosLista(jogos);
   }catch(err){
     status('Falhou.');
     log('ERRO: ' + err.message);
@@ -152,6 +166,226 @@ async function runConsulta(){
   }
 }
 
+async function renderJogosLista(jogos){
+  const el = document.getElementById('de-results');
+  el.innerHTML = '';
+  for(const j of jogos){
+    const bet = await getBet(j.id);
+    const c = scoreColor(j.veredito);
+    const card = document.createElement('div');
+    card.className = 'de-card';
+    card.innerHTML = `
+      <div style="padding:12px 14px;display:flex;justify-content:space-between;align-items:center;gap:10px;cursor:pointer" data-toggle="${j.id}">
+        <div style="display:flex;align-items:center;gap:10px;min-width:0">
+          <input type="checkbox" data-check="${j.id}" ${bet.selecionado?'checked':''} style="width:16px;height:16px;accent-color:var(--gold);flex-shrink:0" onclick="event.stopPropagation()">
+          <div style="min-width:0">
+            <div style="font-size:14px;font-weight:500">${j.homeTeam} <span style="color:var(--txt3);font-weight:400">vs</span> ${j.awayTeam}</div>
+            <div style="font-size:11px;color:var(--txt3)">${j.country} · ${j.league} · odd empate ${j.oddDraw!==null?j.oddDraw.toFixed(2):'—'} · empate ${j.pDraw!==null?j.pDraw+'%':'—'}</div>
+          </div>
+        </div>
+        <div style="text-align:right;flex-shrink:0">
+          <div class="de-badge" style="background:${c.bg};color:${c.tx}">${j.veredito}</div>
+          <div style="font-family:'JetBrains Mono',monospace;font-size:16px;margin-top:3px">${j.score}</div>
+        </div>
+      </div>
+      <div data-stake-row="${j.id}" style="display:${bet.selecionado?'flex':'none'};gap:8px;padding:0 14px 12px;align-items:center">
+        <label style="font-size:12px;color:var(--txt2)">Stake €</label>
+        <input class="de-input" type="number" min="0" step="0.5" data-stake="${j.id}" value="${bet.stake||''}" placeholder="10">
+        <label style="font-size:12px;color:var(--txt2)">Odd</label>
+        <input class="de-input" type="number" min="1" step="0.01" data-odd="${j.id}" value="${bet.odd||j.oddDraw||''}" placeholder="odd">
+      </div>
+      <div data-detail="${j.id}" style="display:none;padding:0 14px 14px;border-top:1px solid var(--border)">
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin:10px 0;font-size:12px">
+          <div><div style="color:var(--txt2)">% Casa</div><div style="font-family:'JetBrains Mono',monospace;font-size:15px">${j.pHome??'—'}%</div></div>
+          <div><div style="color:var(--txt2)">% Empate</div><div style="font-family:'JetBrains Mono',monospace;font-size:15px">${j.pDraw??'—'}%</div></div>
+          <div><div style="color:var(--txt2)">% Fora</div><div style="font-family:'JetBrains Mono',monospace;font-size:15px">${j.pAway??'—'}%</div></div>
+        </div>
+        <div style="font-size:12px;color:var(--txt2)">Odds mercado: casa ${j.oddHome??'—'} · empate ${j.oddDraw??'—'} · fora ${j.oddAway??'—'}</div>
+        <div style="font-size:12px;color:var(--txt2);margin-top:4px">Placar médio previsto: ${j.exScore||'—'} · Golos totais esperados: ${j.avgGoals??'—'}</div>
+        <div style="font-size:11px;color:var(--txt3);margin-top:8px;font-style:italic">H2H, forma recente e posição na tabela ainda não estão ligados à consulta automática — só disponíveis nos jogos que eu preparo manualmente. Próxima iteração.</div>
+      </div>
+    `;
+    el.appendChild(card);
+  }
+  el.querySelectorAll('[data-toggle]').forEach(row=>{
+    row.addEventListener('click', ()=>{
+      const id = row.getAttribute('data-toggle');
+      const d = el.querySelector(`[data-detail="${CSS.escape(id)}"]`);
+      d.style.display = d.style.display==='none' ? 'block' : 'none';
+    });
+  });
+  el.querySelectorAll('[data-check]').forEach(chk=>{
+    chk.addEventListener('change', async ()=>{
+      const id = chk.getAttribute('data-check');
+      el.querySelector(`[data-stake-row="${CSS.escape(id)}"]`).style.display = chk.checked ? 'flex' : 'none';
+      const bet = await getBet(id); bet.selecionado = chk.checked; await setBet(id, bet);
+      renderBanca();
+    });
+  });
+  el.querySelectorAll('[data-stake]').forEach(inp=>{
+    inp.addEventListener('change', async ()=>{
+      const id = inp.getAttribute('data-stake');
+      const bet = await getBet(id); bet.stake = inp.value; await setBet(id, bet);
+      renderBanca();
+    });
+  });
+  el.querySelectorAll('[data-odd]').forEach(inp=>{
+    inp.addEventListener('change', async ()=>{
+      const id = inp.getAttribute('data-odd');
+      const bet = await getBet(id); bet.odd = inp.value; await setBet(id, bet);
+      renderBanca();
+    });
+  });
+}
 document.getElementById('de-refresh').addEventListener('click', runConsulta);
+
+/* ---------- Ligas ---------- */
+const LEAGUE_STATS_OWN = [
+  {liga:'La Liga', jogos:268, empates:85},{liga:'Serie A', jogos:270, empates:72},
+  {liga:'Premier League', jogos:209, empates:54},{liga:'2.Bundesliga', jogos:226, empates:54},
+];
+const LEAGUE_STATS_TOP20 = [
+  {liga:'Iran Azadegan League', pct:38.36},{liga:'Argentina Primera C', pct:37.97},
+  {liga:'Egypt Premier League', pct:37.89},{liga:'Iran Pro League', pct:37.22},
+  {liga:'Ecuador Serie B', pct:36.36},{liga:'Morocco Botola Pro', pct:34.58},
+  {liga:'Argentina Primera B', pct:34.01},{liga:'Scotland Championship', pct:33.89},
+  {liga:'Argentina Primera Nacional', pct:33.33},{liga:'France National', pct:32.72},
+  {liga:'Korea K League 1', pct:32.50},{liga:'Ireland Premier League', pct:32.26},
+  {liga:'South Africa PSL', pct:32.08},{liga:'Kenya Premier League', pct:32.03},
+  {liga:'Kazakhstan Premier League', pct:31.79},{liga:'Israel National League', pct:31.76},
+  {liga:'Spain Segunda RFEF Gr. 3', pct:31.70},{liga:'Uruguay Segunda', pct:31.67},
+  {liga:'Italy Serie C Gr. B', pct:31.65},{liga:'Korea K League 2', pct:31.58},
+];
+function renderLigas(){
+  const el = document.getElementById('tab-ligas');
+  const ownRows = LEAGUE_STATS_OWN.map(l=>{
+    const pct = l.empates/l.jogos*100;
+    return `<tr><td style="padding:7px 0;font-size:13px">${l.liga}</td><td style="padding:7px 0;font-size:13px;text-align:right">${l.jogos}</td><td style="padding:7px 0;font-size:13px;text-align:right">${l.empates}</td><td style="padding:7px 0;font-size:13px;text-align:right;font-family:'JetBrains Mono',monospace">${pct.toFixed(1)}%</td></tr>`;
+  }).join('');
+  const topRows = LEAGUE_STATS_TOP20.map((l,i)=>`<tr><td style="padding:5px 0;font-size:12px;color:var(--txt3)">${i+1}.</td><td style="padding:5px 0;font-size:13px">${l.liga}</td><td style="padding:5px 0;font-size:13px;text-align:right;font-family:'JetBrains Mono',monospace">${l.pct.toFixed(2)}%</td></tr>`).join('');
+  el.innerHTML = `
+    <div style="font-size:12px;color:var(--txt3);margin:14px 0 6px">Validado por nós (backtest próprio, com significância estatística testada)</div>
+    <table style="width:100%;border-collapse:collapse"><tr style="color:var(--txt3);font-size:11px;text-align:left"><th style="font-weight:400">Liga</th><th style="font-weight:400;text-align:right">Jogos</th><th style="font-weight:400;text-align:right">Empates</th><th style="font-weight:400;text-align:right">%</th></tr>${ownRows}</table>
+    <div style="font-size:12px;color:var(--txt3);margin:18px 0 6px">Top 20 mundial por % de empates (fonte externa: progressivebetting.co.uk, 30/07/2026)</div>
+    <table style="width:100%;border-collapse:collapse">${topRows}</table>`;
+}
+
+/* ---------- Banca ---------- */
+async function getBanca(){ try{ const r = await window.storage.get('banca-inicial'); return r? JSON.parse(r.value): null; }catch(e){ return null; } }
+async function setBanca(val){ try{ await window.storage.set('banca-inicial', JSON.stringify(val)); }catch(e){} }
+async function getAjustes(){ try{ const r = await window.storage.get('ajustes'); return r? JSON.parse(r.value): []; }catch(e){ return []; } }
+async function setAjustes(val){ try{ await window.storage.set('ajustes', JSON.stringify(val)); }catch(e){} }
+async function getResultado(id){ try{ const r = await window.storage.get('resultado:'+id); return r? JSON.parse(r.value): null; }catch(e){ return null; } }
+async function setResultado(id,val){ try{ await window.storage.set('resultado:'+id, JSON.stringify(val)); }catch(e){} }
+
+async function renderBanca(){
+  const el = document.getElementById('tab-banca');
+  let banca = await getBanca();
+  if(banca===null){
+    el.innerHTML = `<div style="padding:20px 0">
+      <div style="font-size:13px;color:var(--txt2);margin-bottom:8px">Define a tua banca inicial.</div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <label style="font-size:13px">Banca inicial €</label>
+        <input class="de-input" type="number" min="0" step="1" id="de-banca-input" placeholder="100" style="width:110px">
+        <button class="de-btn" id="de-banca-save">Guardar</button>
+      </div></div>`;
+    document.getElementById('de-banca-save').addEventListener('click', async ()=>{
+      const v = parseFloat(document.getElementById('de-banca-input').value);
+      if(!isNaN(v) && v>0){ await setBanca(v); renderBanca(); }
+    });
+    return;
+  }
+  const ajustes = await getAjustes();
+  let ledger = [];
+  for(const j of JOGOS_ATUAIS){
+    const bet = await getBet(j.id);
+    if(!bet.selecionado || !bet.stake) continue;
+    const resultado = await getResultado(j.id);
+    if(resultado===null) continue;
+    const stake = parseFloat(bet.stake); const odd = parseFloat(bet.odd) || j.oddDraw;
+    const retorno = resultado==='empate' ? stake*(odd-1) : -stake;
+    ledger.push({data:j.dateAttr||new Date().toISOString().slice(0,10), tipo:'aposta', jogo:`${j.homeTeam} vs ${j.awayTeam}`, odd, stake, retorno, ganhou:resultado==='empate'});
+  }
+  ajustes.forEach(a=>ledger.push({data:a.data, tipo:'ajuste', motivo:a.motivo, retorno:a.valor}));
+  ledger.sort((x,y)=>x.data.localeCompare(y.data));
+
+  let saldo = banca; let totalStake=0, totalRetornoApostas=0, wins=0, betsCount=0;
+  const chartPoints = [{y:banca}];
+  const rows = ledger.map(l=>{
+    saldo += l.retorno; chartPoints.push({y:saldo});
+    if(l.tipo==='aposta'){ totalStake+=l.stake; totalRetornoApostas+=l.retorno; betsCount++; if(l.ganhou) wins++; }
+    return `<tr><td style="padding:6px 0;font-size:12px">${l.data}</td><td style="padding:6px 0;font-size:12px">${l.tipo==='aposta'?l.jogo:('Ajuste: '+l.motivo)}</td><td style="padding:6px 0;font-size:12px;text-align:right">${l.tipo==='aposta'?fmt(l.stake):'—'}</td><td style="padding:6px 0;font-size:12px;text-align:right">${l.tipo==='aposta'?l.odd.toFixed(2):'—'}</td><td style="padding:6px 0;font-size:12px;text-align:right;color:${l.retorno>=0?'var(--win)':'var(--lose)'}">${l.retorno>=0?'+':''}€${fmt(l.retorno)}</td><td style="padding:6px 0;font-size:12px;text-align:right;font-family:'JetBrains Mono',monospace">€${fmt(saldo)}</td></tr>`;
+  }).join('');
+  const roi = totalStake>0 ? (totalRetornoApostas/totalStake*100) : 0;
+  const winRate = betsCount>0 ? (wins/betsCount*100) : 0;
+
+  let chartSvg = '';
+  if(chartPoints.length>1){
+    const w=640,h=110,pad=8;
+    const ys = chartPoints.map(p=>p.y); const minY=Math.min(...ys), maxY=Math.max(...ys); const range=(maxY-minY)||1;
+    const pts = chartPoints.map((p,i)=>{ const x=pad+(i/(chartPoints.length-1))*(w-2*pad); const y=h-pad-((p.y-minY)/range)*(h-2*pad); return `${x.toFixed(1)},${y.toFixed(1)}`; }).join(' ');
+    chartSvg = `<svg viewBox="0 0 ${w} ${h}" style="width:100%;height:110px;margin:10px 0"><polyline points="${pts}" fill="none" stroke="#C9A24B" stroke-width="2"/></svg>`;
+  }
+
+  el.innerHTML = `
+    <div style="display:flex;gap:10px;margin:14px 0;flex-wrap:wrap">
+      <div style="background:var(--surf2);border-radius:8px;padding:10px 14px;flex:1;min-width:100px"><div style="font-size:11px;color:var(--txt2)">Banca inicial</div><div style="font-family:'JetBrains Mono',monospace;font-size:17px">€${fmt(banca)}</div></div>
+      <div style="background:var(--surf2);border-radius:8px;padding:10px 14px;flex:1;min-width:100px"><div style="font-size:11px;color:var(--txt2)">Banca atual</div><div style="font-family:'JetBrains Mono',monospace;font-size:17px;color:${saldo>=banca?'var(--win)':'var(--lose)'}">€${fmt(saldo)}</div></div>
+      <div style="background:var(--surf2);border-radius:8px;padding:10px 14px;flex:1;min-width:100px"><div style="font-size:11px;color:var(--txt2)">ROI</div><div style="font-family:'JetBrains Mono',monospace;font-size:17px;color:${roi>=0?'var(--win)':'var(--lose)'}">${roi.toFixed(1)}%</div></div>
+      <div style="background:var(--surf2);border-radius:8px;padding:10px 14px;flex:1;min-width:100px"><div style="font-size:11px;color:var(--txt2)">Taxa acerto</div><div style="font-family:'JetBrains Mono',monospace;font-size:17px">${winRate.toFixed(0)}%</div></div>
+    </div>
+    ${chartSvg}
+    <div style="font-size:12px;color:var(--txt3);text-transform:uppercase;margin:14px 0 6px">Movimentos</div>
+    ${rows ? `<table style="width:100%;border-collapse:collapse"><tr style="color:var(--txt3);font-size:10px;text-align:left"><th style="font-weight:400">Data</th><th style="font-weight:400">Jogo/motivo</th><th style="font-weight:400;text-align:right">Stake</th><th style="font-weight:400;text-align:right">Odd</th><th style="font-weight:400;text-align:right">Retorno</th><th style="font-weight:400;text-align:right">Saldo</th></tr>${rows}</table>` : `<div style="font-size:13px;color:var(--txt3)">Ainda sem movimentos com resultado conhecido. Marca o resultado dos jogos apostados quando terminarem (em breve nesta secção).</div>`}
+    <div style="font-size:12px;color:var(--txt3);text-transform:uppercase;margin:16px 0 6px">Ajuste manual</div>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <input class="de-input" type="number" step="0.5" id="de-ajuste-valor" placeholder="+50 ou -20" style="width:100px">
+      <input class="de-input" type="text" id="de-ajuste-motivo" placeholder="motivo" style="width:150px">
+      <button class="de-btn" id="de-ajuste-add">Aplicar</button>
+    </div>
+    <div style="margin-top:12px"><button class="de-btn" id="de-banca-reset">Redefinir banca</button></div>
+  `;
+  document.getElementById('de-ajuste-add').addEventListener('click', async ()=>{
+    const v = parseFloat(document.getElementById('de-ajuste-valor').value);
+    const motivo = document.getElementById('de-ajuste-motivo').value || 'sem motivo';
+    if(!isNaN(v) && v!==0){ const list = await getAjustes(); list.push({data:new Date().toISOString().slice(0,10), valor:v, motivo}); await setAjustes(list); renderBanca(); }
+  });
+  document.getElementById('de-banca-reset').addEventListener('click', async ()=>{ await setBanca(null); await setAjustes([]); renderBanca(); });
+}
+
+/* ---------- Exportar ---------- */
+async function renderExport(){
+  const el = document.getElementById('tab-export');
+  const banca = await getBanca();
+  const ajustes = await getAjustes();
+  const bets = {};
+  for(const j of JOGOS_ATUAIS){ bets[j.id] = await getBet(j.id); }
+  const payload = { geradoEm: new Date().toISOString(), bancaInicial: banca, ajustesManual: ajustes, jogosConsultados: JOGOS_ATUAIS, apostas: bets };
+  const json = JSON.stringify(payload, null, 2);
+  el.innerHTML = `
+    <div style="font-size:12px;color:var(--txt2);margin:14px 0 8px">Exporta os jogos consultados (com fatores de cálculo), apostas e banca, em JSON, para auditoria externa.</div>
+    <textarea readonly style="width:100%;height:180px;background:var(--surf2);border:1px solid var(--border);color:var(--txt);border-radius:8px;padding:10px;font-family:'JetBrains Mono',monospace;font-size:11px">${json}</textarea>
+    <div style="margin-top:10px"><button class="de-btn" id="de-copy-btn">Copiar</button></div>`;
+  document.getElementById('de-copy-btn').addEventListener('click', async ()=>{
+    try{ await navigator.clipboard.writeText(json); document.getElementById('de-copy-btn').textContent='Copiado'; }
+    catch(e){ document.getElementById('de-copy-btn').textContent='Erro ao copiar'; }
+  });
+}
+
+/* ---------- Tabs ---------- */
+document.querySelectorAll('.de-tabbtn[data-tab]').forEach(btn=>{
+  btn.addEventListener('click', ()=>{
+    document.querySelectorAll('.de-tabbtn[data-tab]').forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active');
+    ['jogos','ligas','banca','export'].forEach(t=>{
+      document.getElementById('tab-'+t).style.display = (btn.dataset.tab===t) ? 'block':'none';
+    });
+    if(btn.dataset.tab==='ligas') renderLigas();
+    if(btn.dataset.tab==='banca') renderBanca();
+    if(btn.dataset.tab==='export') renderExport();
+  });
+});
+
+renderLigas();
 })();
 </script>
