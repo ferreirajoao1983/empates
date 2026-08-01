@@ -58,6 +58,22 @@ document.getElementById('run').onclick = async ()=>{
       if(count>0) log(p + ': ' + count + ' ocorrências', 'ok');
     });
 
+    // procura a definição da função ltodrows nos scripts
+    log('\\n--- Definição de ltodrows ---', 'hdr');
+    const idx = html.indexOf('function ltodrows');
+    if(idx>=0){
+      log(html.slice(idx, idx+1500));
+    }else{
+      log('Não encontrada diretamente no HTML (pode estar num ficheiro .js externo).', 'fail');
+      // procura ficheiros JS externos ligados à página
+      const scripts = doc.querySelectorAll('script[src]');
+      log('Scripts externos encontrados: ' + scripts.length);
+      scripts.forEach(s=>{
+        const src = s.getAttribute('src');
+        if(src && !src.includes('google') && !src.includes('gtag')) log('src: ' + src);
+      });
+    }
+
   }catch(err){ log('ERRO: ' + err.message, 'fail'); }
 };
 </script>
