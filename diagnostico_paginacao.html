@@ -1,0 +1,63 @@
+<style>
+  body{background:#0D1512;color:#EDEFEA;font-family:system-ui,sans-serif;padding:20px;max-width:700px;margin:0 auto}
+  button{background:#1C2A21;border:1px solid #2A3A2F;color:#EDEFEA;border-radius:6px;padding:10px 14px;font-size:13px;margin:4px 4px 4px 0;cursor:pointer}
+  .log{background:#1C2A21;border:1px solid #2A3A2F;border-radius:8px;padding:10px;font-family:monospace;font-size:10px;white-space:pre-wrap;margin-top:10px;max-height:600px;overflow-y:auto;word-break:break-all}
+  .ok{color:#8FD9AC} .fail{color:#E08F8F} .hdr{color:#C9A24B;font-weight:bold}
+</style>
+<h2 style="font-size:16px">TRX — Diagnóstico do botão "mais"</h2>
+<button id="run">Procurar botão de paginação</button>
+<div class="log" id="log">Pronto.</div>
+<script>
+const logEl = document.getElementById('log');
+function log(msg, cls){ const d=document.createElement('div'); if(cls)d.className=cls; d.textContent=msg; logEl.appendChild(d); logEl.scrollTop=logEl.scrollHeight; }
+const PROXIES = [
+  (t)=>'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(t),
+  (t)=>'https://corsproxy.io/?url=' + encodeURIComponent(t),
+  (t)=>'https://api.allorigins.win/raw?url=' + encodeURIComponent(t),
+];
+async function fetchComFallback(targetUrl, timeoutMs){
+  for(const proxyFn of PROXIES){
+    const url = proxyFn(targetUrl);
+    log('A tentar: ' + url);
+    try{
+      const fetchPromise = fetch(url);
+      const timeoutPromise = new Promise((_, reject)=> setTimeout(()=>reject(new Error('tempo esgotado')), timeoutMs));
+      const resp = await Promise.race([fetchPromise, timeoutPromise]);
+      if(!resp.ok){ log('status ' + resp.status); continue; }
+      const text = await resp.text();
+      if(text.length < 1000){ log('resposta pequena demais'); continue; }
+      log('Sucesso: ' + text.length + ' caracteres', 'ok');
+      return text;
+    }catch(err){ log('falhou: ' + err.message); }
+  }
+  throw new Error('Todos os proxies falharam.');
+}
+
+document.getElementById('run').onclick = async ()=>{
+  logEl.innerHTML = '';
+  try{
+    const html = await fetchComFallback('https://www.forebet.com/pt/predictions-for-today', 12000);
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+
+    log('Nº de blocos .rcnt na carga inicial: ' + doc.querySelectorAll('.rcnt').length, 'hdr');
+
+    // procura por elementos com texto "mais", "more", "show", "load"
+    log('\\n--- Candidatos a botão de paginação ---', 'hdr');
+    const all = doc.querySelectorAll('a, button, div[onclick], span[onclick]');
+    all.forEach(elx=>{
+      const t = (elx.textContent||'').trim().toLowerCase();
+      if(t.length>0 && t.length<40 && /(mais|more|show|load|carregar|ver todos|seguinte|next)/.test(t)){
+        log('TAG: ' + elx.tagName + ' | texto: "' + elx.textContent.trim() + '" | onclick: ' + (elx.getAttribute('onclick')||'-') + ' | href: ' + (elx.getAttribute('href')||'-') + ' | class: ' + (elx.className||'-'));
+      }
+    });
+
+    // procura por padrões de paginação no próprio texto/scripts (ex: "loadMore", "page=", "ajax")
+    log('\\n--- Padrões no HTML bruto ---', 'hdr');
+    ['loadMore','load_more','showmore','show_more','ajax','page=','offset=','LoadMatches','getMatches'].forEach(p=>{
+      const count = (html.match(new RegExp(p,'gi'))||[]).length;
+      if(count>0) log(p + ': ' + count + ' ocorrências', 'ok');
+    });
+
+  }catch(err){ log('ERRO: ' + err.message, 'fail'); }
+};
+</script>
