@@ -1,0 +1,61 @@
+<style>
+  body{background:#0D1512;color:#EDEFEA;font-family:system-ui,sans-serif;padding:20px;max-width:700px;margin:0 auto}
+  button{background:#1C2A21;border:1px solid #2A3A2F;color:#EDEFEA;border-radius:6px;padding:10px 14px;font-size:13px;margin:4px 4px 4px 0;cursor:pointer}
+  .log{background:#1C2A21;border:1px solid #2A3A2F;border-radius:8px;padding:10px;font-family:monospace;font-size:10px;white-space:pre-wrap;margin-top:10px;max-height:600px;overflow-y:auto;word-break:break-all}
+  .ok{color:#8FD9AC} .fail{color:#E08F8F} .hdr{color:#C9A24B;font-weight:bold}
+</style>
+<h2 style="font-size:16px">TRX — Testar getrs.php diretamente</h2>
+<button id="run">Testar endpoint JSON</button>
+<div class="log" id="log">Pronto.</div>
+<script>
+const logEl = document.getElementById('log');
+function log(msg, cls){ const d=document.createElement('div'); if(cls)d.className=cls; d.textContent=msg; logEl.appendChild(d); logEl.scrollTop=logEl.scrollHeight; }
+const PROXIES = [
+  (t)=>'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(t),
+  (t)=>'https://corsproxy.io/?url=' + encodeURIComponent(t),
+  (t)=>'https://api.allorigins.win/raw?url=' + encodeURIComponent(t),
+];
+async function fetchComFallback(targetUrl, timeoutMs){
+  for(const proxyFn of PROXIES){
+    const url = proxyFn(targetUrl);
+    log('A tentar: ' + url);
+    try{
+      const fetchPromise = fetch(url);
+      const timeoutPromise = new Promise((_, reject)=> setTimeout(()=>reject(new Error('tempo esgotado')), timeoutMs));
+      const resp = await Promise.race([fetchPromise, timeoutPromise]);
+      if(!resp.ok){ log('status ' + resp.status); continue; }
+      const text = await resp.text();
+      if(text.length < 20){ log('resposta demasiado pequena'); continue; }
+      log('Sucesso: ' + text.length + ' caracteres', 'ok');
+      return text;
+    }catch(err){ log('falhou: ' + err.message); }
+  }
+  throw new Error('Todos os proxies falharam.');
+}
+
+document.getElementById('run').onclick = async ()=>{
+  logEl.innerHTML = '';
+  // Usa exatamente os parâmetros capturados no botão "Mais" para validar o endpoint
+  const params = new URLSearchParams({
+    ln: 'pt', tp: '1x2', in: '2026-08-01', ord: '0', tz: '+60', tzs: '1785531600', tze: '1785628800'
+  });
+  const target = 'https://www.forebet.com/scripts/getrs.php?' + params.toString();
+  try{
+    const text = await fetchComFallback(target, 12000);
+    log('\\n--- Primeiros 2000 caracteres da resposta ---', 'hdr');
+    log(text.slice(0,2000));
+    try{
+      const data = JSON.parse(text);
+      log('\\n--- JSON válido! Estrutura ---', 'hdr');
+      log('É array? ' + Array.isArray(data) + ' | comprimento: ' + (data.length!==undefined?data.length:'n/a'));
+      if(Array.isArray(data) && data[0]){
+        log('data[0] é array? ' + Array.isArray(data[0]) + ' | comprimento: ' + (data[0].length!==undefined?data[0].length:'objeto'));
+        if(Array.isArray(data[0]) && data[0][0]){
+          log('\\nExemplo do primeiro elemento de data[0]:');
+          log(JSON.stringify(data[0][0], null, 2));
+        }
+      }
+    }catch(e){ log('Não é JSON válido diretamente: ' + e.message, 'fail'); }
+  }catch(err){ log('ERRO: ' + err.message, 'fail'); }
+};
+</script>
