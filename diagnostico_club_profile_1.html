@@ -59,6 +59,14 @@ document.getElementById('run').onclick = async ()=>{
       const trs = maior.querySelectorAll('tr');
       for(let i=0;i<4 && i<trs.length;i++) log('[' + i + '] ' + trs[i].outerHTML.slice(0,800));
     }
+
+    log('\\n--- Tabela 0 (stats-table, primeiras 6 linhas) ---', 'hdr');
+    const t0rows = tables[0].querySelectorAll('tr');
+    for(let i=0;i<6 && i<t0rows.length;i++) log('[' + i + '] ' + t0rows[i].outerHTML.slice(0,600));
+
+    log('\\n--- Tabela 1 (stats-table, todas as linhas) ---', 'hdr');
+    const t1rows = tables[1].querySelectorAll('tr');
+    for(let i=0;i<t1rows.length;i++) log('[' + i + '] ' + t1rows[i].outerHTML.slice(0,600));
   }catch(err){ log('ERRO: ' + err.message, 'fail'); }
 };
 </script>
