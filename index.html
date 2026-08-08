@@ -33,7 +33,7 @@
 <div id="tab-jogos">
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
     <div style="font-size:12px;color:var(--txt3)" id="de-status">Carrega para consultar os jogos reais de amanhã.</div>
-    <button class="de-btn" id="de-refresh">Consultar amanhã</button>
+    <button class="de-btn" id="de-refresh">Consultar</button>
   </div>
   <div id="de-results"></div>
   <details style="margin-top:14px">
@@ -53,7 +53,7 @@ const log = (msg)=>{ const el=document.getElementById('de-log'); el.textContent 
 const status = (msg)=>{ document.getElementById('de-status').textContent = msg; };
 function fmt(n){return Number(n).toLocaleString('pt-PT',{minimumFractionDigits:2,maximumFractionDigits:2});}
 
-/* ---------- Consulta ao vivo (Forebet) ---------- */
+/* ---------- Consulta ao vivo (Vitibet) ---------- */
 
 const PROXIES = [
   (t)=>'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(t),
@@ -79,97 +79,411 @@ async function fetchComFallback(targetUrl, timeoutMs){
   throw new Error('Todos os proxies falharam. Tenta novamente daqui a pouco.');
 }
 
-function parseForebetBlock(el){
-  const homeTeam = el.querySelector('.homeTeam')?.textContent.trim() || '?';
-  const awayTeam = el.querySelector('.awayTeam')?.textContent.trim() || '?';
-  const dateAttr = el.querySelector('time[itemprop="startDate"]')?.getAttribute('datetime') || '';
-  const dateText = el.querySelector('.date_bah')?.textContent.trim() || '';
-  const flagImg = el.querySelector('.stcn img.flsc');
-  let country='', league='';
-  if(flagImg){
-    const onclick = flagImg.getAttribute('onclick')||'';
-    const m = onclick.match(/getstag\(this,\d+,'([^']+)','([^']+)'/);
-    if(m){ country=m[1]; league=m[2]; }
-  }
-  const toNum = (s)=>{ const n = parseFloat(s); return isNaN(n)?null:n; };
-  const fprcSpans = el.querySelectorAll('.fprc > span');
-  const pHome = fprcSpans[0] ? toNum(fprcSpans[0].textContent) : null;
-  const pDraw = fprcSpans[1] ? toNum(fprcSpans[1].textContent) : null;
-  const pAway = fprcSpans[2] ? toNum(fprcSpans[2].textContent) : null;
-  const avgGoalsEl = el.querySelector('.avg_sc.tabonly');
-  const avgGoals = avgGoalsEl ? toNum(avgGoalsEl.textContent) : null;
-  const exScoreEl = el.querySelector('.ex_sc.tabonly');
-  const exScore = exScoreEl ? exScoreEl.textContent.trim() : null;
-  const haoddSpans = el.querySelectorAll('.bigOnly .haodd > span');
-  const oddHome = haoddSpans[0] ? toNum(haoddSpans[0].textContent) : null;
-  const oddDraw = haoddSpans[1] ? toNum(haoddSpans[1].textContent) : null;
-  const oddAway = haoddSpans[2] ? toNum(haoddSpans[2].textContent) : null;
-  const id = (homeTeam+'_'+awayTeam+'_'+dateAttr).replace(/\s+/g,'-');
-  return {id,homeTeam,awayTeam,dateAttr,dateText,country,league,pHome,pDraw,pAway,avgGoals,exScore,oddHome,oddDraw,oddAway};
+function parseVitibetTable(doc){
+  const tables = Array.from(doc.querySelectorAll('table'));
+  let maior = tables[0];
+  tables.forEach(t=>{ if(t.querySelectorAll('tr').length > (maior?maior.querySelectorAll('tr').length:0)) maior = t; });
+  if(!maior) return [];
+
+  const trs = maior.querySelectorAll('tr');
+  let dataAtual = '';
+  let ligaAtual = '';
+  const jogos = [];
+
+  trs.forEach(tr=>{
+    if(tr.querySelector('td.radekdatum')){
+      dataAtual = tr.querySelector('td.radekdatum').textContent.trim();
+      return;
+    }
+    if(tr.classList.contains('odseknutiligy')){
+      const txt = tr.textContent.trim();
+      // ignora linhas de liga corrompidas por anúncios injetados (ex: "adsbygoogle")
+      if(!/adsbygoogle|googletag|google_ad/i.test(txt)){
+        ligaAtual = txt;
+      }
+      return;
+    }
+    // ignora qualquer linha que contenha script de anúncios injetado
+    if(/adsbygoogle|googletag|google_ad/i.test(tr.textContent)) return;
+    const tds = tr.querySelectorAll('td');
+    if(tds.length < 13) return; // não é uma linha de jogo válida
+
+    const toNum = (s)=>{ const n = parseFloat((s||'').replace('%','').trim()); return isNaN(n)?null:n; };
+    const homeTeam = tds[2] ? tds[2].textContent.trim() : '';
+    const awayTeam = tds[3] ? tds[3].textContent.trim() : '';
+    if(!homeTeam || !awayTeam) return;
+
+    const dateShort = tds[0] ? tds[0].textContent.trim() : '';
+    const pHome = toNum(tds[8]?.textContent);
+    const pDraw = toNum(tds[9]?.textContent);
+    const pAway = toNum(tds[10]?.textContent);
+    const valorIndice = toNum(tds[12]?.textContent);
+    const detailLink = tr.querySelector('a[href*="match-detail"]');
+    let fixtureId = null;
+    let leagueId = null;
+    if(detailLink){
+      const href = detailLink.getAttribute('href');
+      const m = href.match(/fixture_id=(\d+)/);
+      if(m) fixtureId = m[1];
+      const m2 = href.match(/league_id=(\d+)/);
+      if(m2) leagueId = m2[1];
+    }
+    if(pHome===null || pDraw===null || pAway===null) return;
+    const soma = pHome + pDraw + pAway;
+    if(soma < 95 || soma > 105) return; // percentagens têm de somar ~100%, senão é leitura inválida
+    if(pHome===0 && pDraw===0 && pAway===0) return;
+
+    const id = (homeTeam+'_'+awayTeam+'_'+dataAtual).replace(/\s+/g,'-');
+    jogos.push({id, homeTeam, awayTeam, dateShort, dataAtual, league: ligaAtual, country: ligaAtual, pHome, pDraw, pAway, valorIndice, fixtureId, leagueId});
+  });
+
+  return jogos;
 }
 
-function scoreJogo(j){
-  if(j.oddDraw===null || j.pHome===null) return {score:null, veredito:'SEM DADOS', postura:'A VALIDAR'};
+function scoreJogo(j, contagemTriplo){
+  if(j.pDraw===null) return {score:null, veredito:'SEM DADOS', postura:'A VALIDAR'};
+  const baixaConfianca = contagemTriplo >= 4; // triplo repetido em 4+ jogos diferentes = valor genérico do modelo
   let score = 0;
-  if(j.oddDraw>=3.0 && j.oddDraw<=3.8) score += 6;
-  else if(j.oddDraw>3.8 && j.oddDraw<=4.5) score += 2;
-  else if(j.oddDraw<3.0) score += 1;
+  if(j.pDraw>=26 && j.pDraw<=33) score += 6;
+  else if((j.pDraw>=22 && j.pDraw<26) || (j.pDraw>33 && j.pDraw<=38)) score += 3;
+  else score += 1;
   const gap = Math.abs(j.pHome - j.pAway);
   if(gap<=10) score += 2; else if(gap<=20) score += 1;
-  if(j.pDraw!==null && j.pDraw>=28) score += 2;
+  if(j.pDraw>=28) score += 2;
+  if(baixaConfianca) score = Math.min(score, 4); // despromove fortemente, mas não descarta
   score = Math.min(10, score);
   let veredito, postura;
-  if(score>=7){ veredito='INDICADO'; postura='APOSTAR PRÉ MATCH'; }
+  if(baixaConfianca){ veredito='BAIXA CONFIANÇA'; postura='EVITAR (dados genéricos)'; }
+  else if(score>=7){ veredito='INDICADO'; postura='APOSTAR PRÉ MATCH'; }
   else if(score>=5){ veredito='OBSERVAR'; postura='OBSERVAR / LIVE'; }
   else { veredito='NÃO INDICADO'; postura='EVITAR'; }
-  return {score, veredito, postura};
+  return {score, veredito, postura, baixaConfianca};
 }
+async function fetchPosicoes(leagueId, homeTeam, awayTeam){
+  if(!leagueId) return {};
+  const url = `https://www.vitibet.com/index.php?clanek=leagues&sekce=fotbal&liga=${leagueId}&lang=pt`;
+  const html = await fetchComFallback(url, 15000);
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  const tables = doc.querySelectorAll('table.modern-standings');
+  const resultado = {};
+  const acharPosicao = (nomeAlvo)=>{
+    for(const t of tables){
+      const linhas = t.querySelectorAll('tr');
+      for(const row of linhas){
+        const teamCell = row.querySelector('.col-team');
+        const rankCell = row.querySelector('.col-rank');
+        if(teamCell && rankCell){
+          const nomeTabela = teamCell.textContent.trim();
+          if(nomeTabela===nomeAlvo || nomeTabela.includes(nomeAlvo) || nomeAlvo.includes(nomeTabela)){
+            return rankCell.textContent.trim();
+          }
+        }
+      }
+    }
+    return null;
+  };
+  resultado.casa = acharPosicao(homeTeam);
+  resultado.fora = acharPosicao(awayTeam);
+  return resultado;
+}
+
+async function fetchClubProfile(teamId, teamName){
+  if(!teamId) return null;
+  const url = `https://www.vitibet.com/index.php?clanek=club-profile&team_id=${teamId}&lang=pt&team_name=${teamName||''}`;
+  const html = await fetchComFallback(url, 15000);
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+
+  // posição: linha destacada (row-active) nas tabelas de classificação
+  let posicao = null;
+  const rowActive = doc.querySelector('tr.row-active');
+  if(rowActive){
+    const primeiraCel = rowActive.querySelector('td');
+    if(primeiraCel) posicao = primeiraCel.textContent.trim().replace('.','');
+  }
+
+  // últimos jogos: secção "Jogos Recentes"
+  const ultimosJogos = [];
+  const heading = Array.from(doc.querySelectorAll('h3')).find(h=>h.textContent.includes('Jogos Recentes'));
+  if(heading){
+    let card = heading.nextElementSibling;
+    if(card){
+      card.querySelectorAll('.match-list-item').forEach(item=>{
+        const data = item.querySelector('.match-date')?.textContent.trim() || '';
+        const spans = item.querySelectorAll('.match-teams > span');
+        const score = item.querySelector('.match-score')?.textContent.trim() || '';
+        if(spans.length>=2){
+          const equipaEBold = Array.from(spans).findIndex(s=>s.classList.contains('team-bold'));
+          const casaFora = equipaEBold===0 ? 'casa' : 'fora';
+          const adversarioSpan = equipaEBold===0 ? spans[1] : spans[0];
+          const adversario = adversarioSpan.textContent.trim();
+          ultimosJogos.push({data, adversario, resultado: score, cf: casaFora});
+        }
+      });
+    }
+  }
+
+  return {posicao, ultimosJogos: ultimosJogos.slice(0,5)};
+}
+
+async function fetchMatchDetail(fixtureId, leagueId, homeTeam, awayTeam){
+  const url = `https://www.vitibet.com/index.php?clanek=match-detail&sekce=fotbal&lang=pt&fixture_id=${fixtureId}&league_id=${leagueId||0}`;
+  const html = await fetchComFallback(url, 15000);
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+
+  // H2H
+  const h2h = [];
+  const h2hHeading = Array.from(doc.querySelectorAll('h3')).find(h=>h.textContent.includes('Confronto direto'));
+  if(h2hHeading){
+    let card = h2hHeading.nextElementSibling;
+    if(card){
+      card.querySelectorAll(':scope > div').forEach(row=>{
+        const spans = row.querySelectorAll('span');
+        const strong = row.querySelector('strong');
+        if(spans.length>=3 && strong){
+          h2h.push({
+            data: spans[0].textContent.trim(),
+            casa: spans[1].textContent.trim(),
+            resultado: strong.textContent.trim(),
+            fora: spans[2].textContent.trim()
+          });
+        }
+      });
+    }
+  }
+
+  // estatísticas casa/fora por equipa (proxy de forma recente)
+  // a página tem 2 pares de team-stats-box (um de H2H agregado, vazio se não há histórico, e outro de forma recente)
+  const todasStats = [];
+  doc.querySelectorAll('.team-stats-box').forEach(box=>{
+    const linkEl = box.querySelector('.team-stats-header a');
+    const nome = linkEl?.textContent.trim() || '?';
+    let teamId = null;
+    if(linkEl){
+      const m = linkEl.getAttribute('href')?.match(/team_id=(\d+)/);
+      if(m) teamId = m[1];
+    }
+    const linhas = {};
+    let temDados = false;
+    box.querySelectorAll('table tbody tr').forEach(r=>{
+      const cells = r.querySelectorAll('td');
+      if(cells.length===4){
+        const label = cells[0].textContent.trim();
+        const casa = cells[1].textContent.trim(), fora = cells[2].textContent.trim(), total = cells[3].textContent.trim();
+        linhas[label] = {casa, fora, total};
+        if(label==='Jogos' && (casa!=='0' || fora!=='0')) temDados = true;
+      }
+    });
+    todasStats.push({nome, linhas, temDados, teamId});
+  });
+  // por equipa, prefere a versão com dados reais (Jogos > 0)
+  const statsPorEquipa = {};
+  todasStats.forEach(s=>{
+    if(!statsPorEquipa[s.nome] || (!statsPorEquipa[s.nome].temDados && s.temDados)){
+      statsPorEquipa[s.nome] = s;
+    }
+  });
+  const teamStats = Object.values(statsPorEquipa);
+
+  // sequência de forma (últimos jogos) a partir dos "form-dots" no cabeçalho do jogo
+  const formaPorEquipa = {};
+  const scoreboardTeams = doc.querySelectorAll('.match-scoreboard-team');
+  log('[detalhe] match-scoreboard-team encontrados: ' + scoreboardTeams.length);
+  scoreboardTeams.forEach(teamBox=>{
+    const links = teamBox.querySelectorAll('.club-link');
+    // o 1º link é só o logótipo (sem texto); o nome está no 2º (dentro de um <span>)
+    let nome = '';
+    for(const l of links){ if(l.textContent.trim()){ nome = l.textContent.trim(); break; } }
+    const dots = teamBox.querySelectorAll('.form-dot');
+    log('[detalhe] equipa: "' + nome + '" | dots: ' + dots.length);
+    if(!nome) return;
+    const seq = Array.from(dots).map(d=>{
+      if(d.classList.contains('form-dot-w')) return 'V';
+      if(d.classList.contains('form-dot-d')) return 'E';
+      if(d.classList.contains('form-dot-l')) return 'D';
+      return '?';
+    });
+    formaPorEquipa[nome] = seq;
+  });
+  log('[detalhe] nomes em teamStats: ' + teamStats.map(t=>'"'+t.nome+'"').join(', '));
+
+  let posicoes = {};
+  try{ posicoes = await fetchPosicoes(leagueId, homeTeam, awayTeam); }catch(e){ /* segue sem posições se falhar */ }
+
+  // perfis das equipas: posição mais fiável (row-active) + últimos jogos reais
+  const perfis = {};
+  for(const ts of teamStats){
+    if(!ts.teamId) continue;
+    try{
+      const perfil = await fetchClubProfile(ts.teamId, ts.nome.toLowerCase().replace(/\s+/g,'-'));
+      perfis[ts.nome] = perfil;
+    }catch(e){ log('Falhou perfil de ' + ts.nome + ': ' + e.message); }
+  }
+
+  return {h2h, teamStats, posicoes, formaPorEquipa, perfis};
+}
+
+function renderDetalheHtml(det, jogo){
+  let html = '';
+  const posCasa = det.perfis?.[jogo.homeTeam]?.posicao || det.posicoes?.casa;
+  const posFora = det.perfis?.[jogo.awayTeam]?.posicao || det.posicoes?.fora;
+  if(posCasa || posFora){
+    html += `<div style="display:flex;gap:14px;margin-bottom:10px;font-size:12px">
+      <div>${jogo.homeTeam}: <strong>${posCasa ? posCasa+'º':'—'}</strong></div>
+      <div>${jogo.awayTeam}: <strong>${posFora ? posFora+'º':'—'}</strong></div>
+    </div>`;
+  }
+  if(det.h2h.length){
+    html += `<div style="font-size:12px;color:var(--txt2);margin-bottom:4px"><i class="ti ti-history" style="font-size:13px;vertical-align:-2px;margin-right:4px" aria-hidden="true"></i>Confronto direto</div>`;
+    det.h2h.forEach(m=>{
+      html += `<div style="display:flex;justify-content:space-between;font-size:12px;padding:3px 0;border-bottom:1px solid var(--border)">
+        <span style="color:var(--txt3)">${m.data}</span>
+        <span>${m.casa} <strong style="font-family:'JetBrains Mono',monospace;margin:0 6px">${m.resultado}</strong> ${m.fora}</span>
+      </div>`;
+    });
+  } else {
+    html += `<div style="font-size:12px;color:var(--txt3)">Sem confrontos diretos recentes registados.</div>`;
+  }
+
+  if(det.teamStats.length){
+    html += `<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:12px">`;
+    det.teamStats.forEach(ts=>{
+      const mediaMarc = ts.linhas['Média de golos (+)'];
+      const mediaSofr = ts.linhas['Média de golos (-)'];
+      const seq = (det.formaPorEquipa && det.formaPorEquipa[ts.nome]) || [];
+      const seqTxt = seq.length ? seq.slice(-5).join(' - ') : '—';
+      const ultimosJogos = det.perfis?.[ts.nome]?.ultimosJogos || [];
+      const listaJogos = ultimosJogos.length ? ultimosJogos.map(j=>
+        `<div style="font-size:11px;color:var(--txt3);padding:2px 0;border-bottom:1px solid var(--border)">
+          <span style="text-transform:uppercase;font-size:9px;background:var(--surf2);padding:1px 4px;border-radius:3px;margin-right:4px">${j.cf==='casa'?'Casa':'Fora'}</span>
+          vs ${j.adversario} <strong style="font-family:'JetBrains Mono',monospace">${j.resultado}</strong>
+        </div>`
+      ).join('') : '<div style="font-size:11px;color:var(--txt3)">Sem histórico detalhado disponível.</div>';
+      html += `<div>
+        <div style="font-size:12px;color:var(--txt2);font-weight:500">${ts.nome}</div>
+        <div style="font-size:12px;font-family:'JetBrains Mono',monospace;margin:3px 0">${seqTxt}</div>
+        <div style="font-size:11px;color:var(--txt3);margin-top:2px">Casa: ${mediaMarc?.casa??'—'} marc./jogo · ${mediaSofr?.casa??'—'} sofr./jogo</div>
+        <div style="font-size:11px;color:var(--txt3);margin-bottom:6px">Fora: ${mediaMarc?.fora??'—'} marc./jogo · ${mediaSofr?.fora??'—'} sofr./jogo</div>
+        ${listaJogos}
+      </div>`;
+    });
+    html += `</div>`;
+  }
+
+  return html;
+}
+
 function scoreColor(v){
   if(v==='INDICADO') return {bg:'#1D4D33',tx:'var(--win)'};
   if(v==='OBSERVAR') return {bg:'#4D3E1D',tx:'#E0BE7A'};
   if(v==='SEM DADOS') return {bg:'#2A3A2F',tx:'var(--txt2)'};
+  if(v==='BAIXA CONFIANÇA') return {bg:'#2A2A3A',tx:'#9A9AC0'};
   return {bg:'#4D1D1D',tx:'var(--lose)'};
 }
 
 let JOGOS_ATUAIS = [];
 
 async function getBet(id){
-  try{ const r = await window.storage.get('aposta:'+id); return r? JSON.parse(r.value): {selecionado:false,stake:'',odd:''}; }
+  try{ const r = localStorage.getItem('aposta:'+id); return r? JSON.parse(r): {selecionado:false,stake:'',odd:''}; }
   catch(e){ return {selecionado:false,stake:'',odd:''}; }
 }
-async function setBet(id,val){ try{ await window.storage.set('aposta:'+id, JSON.stringify(val)); }catch(e){} }
+async function setBet(id,val){ try{ localStorage.setItem('aposta:'+id, JSON.stringify(val)); }catch(e){ console.error('setBet falhou', e); } }
+
+function dataParaDia(dataAtual, hojeStr, amanhaStr){
+  // dataAtual vem tipo "Domingo - 02.08.2026"
+  const m = dataAtual.match(/(\d{2}\.\d{2}\.\d{4})/);
+  if(!m) return 'outro';
+  if(m[1]===hojeStr) return 'hoje';
+  if(m[1]===amanhaStr) return 'amanha';
+  return 'outro';
+}
 
 async function runConsulta(){
-  status('A ligar ao Forebet (pode demorar 10-20 segundos)...');
+  status('A ligar ao Vitibet (pode demorar 10-20 segundos)...');
   document.getElementById('de-log').textContent = '';
   document.getElementById('de-results').innerHTML = '';
   try{
-    const html = await fetchComFallback('https://www.forebet.com/en/football-tips-and-predictions-for-tomorrow', 12000);
+    const html = await fetchComFallback('https://www.vitibet.com/index.php?clanek=quicktips&sekce=fotbal&lang=pt&design_version=old', 15000);
     const doc = new DOMParser().parseFromString(html, 'text/html');
-    const blocos = Array.from(doc.querySelectorAll('.rcnt'));
-    log('Jogos encontrados na página: ' + blocos.length);
-    let jogos = blocos.map(parseForebetBlock).map(j=>({...j, ...scoreJogo(j)}));
+    window.__DEBUG_ROWS__ = 0;
+    window.__DEBUG_LOG__ = log;
+    let jogos = parseVitibetTable(doc);
+    log('Jogos extraídos no total: ' + jogos.length);
+
+    if(jogos.length === 0){
+      log('\\n--- DIAGNÓSTICO: 0 jogos, a investigar ---', 'hdr');
+      const tables = Array.from(doc.querySelectorAll('table'));
+      log('Tabelas na página: ' + tables.length);
+      tables.forEach((t,i)=> log('Tabela ' + i + ': ' + t.querySelectorAll('tr').length + ' linhas'));
+      let maior = tables[0];
+      tables.forEach(t=>{ if(t.querySelectorAll('tr').length > (maior?maior.querySelectorAll('tr').length:0)) maior = t; });
+      if(maior){
+        const trs = maior.querySelectorAll('tr');
+        log('Tabela maior tem ' + trs.length + ' linhas. Primeiras 3 linhas em bruto:');
+        for(let i=0;i<3 && i<trs.length;i++) log('[' + i + '] ' + trs[i].outerHTML.slice(0,500));
+      }
+    }
+    const distribuicao = {};
+    jogos.forEach(j=>{ distribuicao[j.pDraw] = (distribuicao[j.pDraw]||0)+1; });
+    log('Distribuição de %empate entre todos os jogos: ' + JSON.stringify(distribuicao));
+    log('Amostra de 8 jogos (equipas + %empate): ' + jogos.slice(0,8).map(j=>j.homeTeam+' vs '+j.awayTeam+'='+j.pDraw+'%').join(' | '));
+
+    const hoje = new Date();
+    const amanha = new Date(hoje.getTime() + 86400000);
+    const fmtD = (d)=> String(d.getDate()).padStart(2,'0')+'.'+String(d.getMonth()+1).padStart(2,'0')+'.'+d.getFullYear();
+    const hojeStr = fmtD(hoje);
+    const amanhaStr = fmtD(amanha);
+    log('Data "hoje" calculada: ' + hojeStr + ' | Data "amanhã" calculada: ' + amanhaStr);
+
+    const datasEncontradas = [...new Set(jogos.map(j=>j.dataAtual))];
+    log('Datas encontradas nos jogos (primeiras 10): ' + datasEncontradas.slice(0,10).join(' | '));
+
+    jogos = jogos.map(j=>({...j, dia: dataParaDia(j.dataAtual, hojeStr, amanhaStr)}));
+    jogos = jogos.filter(j=> j.dia==='hoje' || j.dia==='amanha');
+
+    // conta quantas vezes cada triplo exato (casa/empate/fora) se repete entre jogos diferentes
+    const contagemTriplos = {};
+    jogos.forEach(j=>{
+      const chave = j.pHome+'-'+j.pDraw+'-'+j.pAway;
+      contagemTriplos[chave] = (contagemTriplos[chave]||0)+1;
+    });
+    const triplosGenericos = Object.entries(contagemTriplos).filter(([k,n])=>n>=4).length;
+    log('Triplos de percentagem repetidos 4+ vezes (valor genérico suspeito): ' + triplosGenericos);
+
+    jogos = jogos.map(j=>{
+      const chave = j.pHome+'-'+j.pDraw+'-'+j.pAway;
+      return {...j, ...scoreJogo(j, contagemTriplos[chave])};
+    });
     jogos = jogos.filter(j=>j.score!==null);
-    jogos.sort((a,b)=>b.score-a.score);
+    jogos.sort((a,b)=> (a.dia===b.dia) ? (b.score-a.score) : (a.dia==='hoje'?-1:1));
     JOGOS_ATUAIS = jogos;
 
-    status(jogos.length + ' jogos analisados (só os que têm odd de empate disponível), ordenados por tendência de empate.');
     if(jogos.length===0){
-      document.getElementById('de-results').innerHTML = '<div class="de-card" style="padding:14px;font-size:13px;color:var(--txt2)">Nenhum jogo com odds disponíveis encontrado.</div>';
+      status('Não encontrei jogos de hoje/amanhã nesta consulta (pode ser um problema de correspondência de datas).');
+      document.getElementById('de-results').innerHTML = '<div class="de-card" style="padding:14px;font-size:13px;color:var(--lose)">Sem jogos para hoje/amanhã. Vê o registo técnico para diagnóstico.</div>';
       return;
     }
+    status(jogos.length + ' jogos analisados (Vitibet), ordenados por tendência de empate.');
     await renderJogosLista(jogos);
   }catch(err){
     status('Falhou.');
     log('ERRO: ' + err.message);
-    document.getElementById('de-results').innerHTML = '<div class="de-card" style="padding:14px;font-size:13px;color:var(--lose)">Não consegui consultar agora. Tenta novamente — os proxies gratuitos falham de forma intermitente.</div>';
+    document.getElementById('de-results').innerHTML = '<div class="de-card" style="padding:14px;font-size:13px;color:var(--lose)">Não consegui consultar agora. Tenta novamente.</div>';
   }
 }
 
 async function renderJogosLista(jogos){
   const el = document.getElementById('de-results');
   el.innerHTML = '';
+  const dayLabels = {hoje:'Hoje', amanha:'Amanhã'};
+  let ultimoDia = null;
   for(const j of jogos){
+    if(j.dia !== ultimoDia){
+      ultimoDia = j.dia;
+      const h = document.createElement('div');
+      h.style.cssText = 'font-family:Oswald,sans-serif;font-size:13px;color:var(--txt3);letter-spacing:0.08em;text-transform:uppercase;margin:14px 0 6px';
+      h.textContent = dayLabels[j.dia] || j.dia;
+      el.appendChild(h);
+    }
     const bet = await getBet(j.id);
     const c = scoreColor(j.veredito);
     const card = document.createElement('div');
@@ -180,7 +494,7 @@ async function renderJogosLista(jogos){
           <input type="checkbox" data-check="${j.id}" ${bet.selecionado?'checked':''} style="width:16px;height:16px;accent-color:var(--gold);flex-shrink:0" onclick="event.stopPropagation()">
           <div style="min-width:0">
             <div style="font-size:14px;font-weight:500">${j.homeTeam} <span style="color:var(--txt3);font-weight:400">vs</span> ${j.awayTeam}</div>
-            <div style="font-size:11px;color:var(--txt3)">${j.country} · ${j.league} · odd empate ${j.oddDraw!==null?j.oddDraw.toFixed(2):'—'} · empate ${j.pDraw!==null?j.pDraw+'%':'—'}</div>
+            <div style="font-size:11px;color:var(--txt3)">${j.league} · odd empate implícita ~${j.pDraw?(100/j.pDraw).toFixed(2):'—'} · empate ${j.pDraw!==null?j.pDraw+'%':'—'} (casa ${j.pHome}% / fora ${j.pAway}%)</div>
           </div>
         </div>
         <div style="text-align:right;flex-shrink:0">
@@ -192,17 +506,18 @@ async function renderJogosLista(jogos){
         <label style="font-size:12px;color:var(--txt2)">Stake €</label>
         <input class="de-input" type="number" min="0" step="0.5" data-stake="${j.id}" value="${bet.stake||''}" placeholder="10">
         <label style="font-size:12px;color:var(--txt2)">Odd</label>
-        <input class="de-input" type="number" min="1" step="0.01" data-odd="${j.id}" value="${bet.odd||j.oddDraw||''}" placeholder="odd">
+        <input class="de-input" type="number" min="1" step="0.01" data-odd="${j.id}" value="${bet.odd || (j.pDraw?(100/j.pDraw).toFixed(2):'')}" placeholder="odd">
       </div>
-      <div data-detail="${j.id}" style="display:none;padding:0 14px 14px;border-top:1px solid var(--border)">
+      <div data-detail="${j.id}" style="display:none;padding:0 14px 14px;border-top:1px solid var(--border)" data-loaded="false" data-fixture="${j.fixtureId||''}">
         <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin:10px 0;font-size:12px">
           <div><div style="color:var(--txt2)">% Casa</div><div style="font-family:'JetBrains Mono',monospace;font-size:15px">${j.pHome??'—'}%</div></div>
           <div><div style="color:var(--txt2)">% Empate</div><div style="font-family:'JetBrains Mono',monospace;font-size:15px">${j.pDraw??'—'}%</div></div>
           <div><div style="color:var(--txt2)">% Fora</div><div style="font-family:'JetBrains Mono',monospace;font-size:15px">${j.pAway??'—'}%</div></div>
         </div>
-        <div style="font-size:12px;color:var(--txt2)">Odds mercado: casa ${j.oddHome??'—'} · empate ${j.oddDraw??'—'} · fora ${j.oddAway??'—'}</div>
-        <div style="font-size:12px;color:var(--txt2);margin-top:4px">Placar médio previsto: ${j.exScore||'—'} · Golos totais esperados: ${j.avgGoals??'—'}</div>
-        <div style="font-size:11px;color:var(--txt3);margin-top:8px;font-style:italic">H2H, forma recente e posição na tabela ainda não estão ligados à consulta automática — só disponíveis nos jogos que eu preparo manualmente. Próxima iteração.</div>
+        <div style="font-size:12px;color:var(--txt2)">Índice Vitisport (equilíbrio de forças, + favorece casa / − favorece fora): ${j.valorIndice??'—'}</div>
+        <div data-extra="${j.id}" style="margin-top:10px">
+          <button class="de-btn" data-loaddetail="${j.id}" style="font-size:12px">Carregar H2H e forma recente</button>
+        </div>
       </div>
     `;
     el.appendChild(card);
@@ -212,6 +527,22 @@ async function renderJogosLista(jogos){
       const id = row.getAttribute('data-toggle');
       const d = el.querySelector(`[data-detail="${CSS.escape(id)}"]`);
       d.style.display = d.style.display==='none' ? 'block' : 'none';
+    });
+  });
+  el.querySelectorAll('[data-loaddetail]').forEach(btn=>{
+    btn.addEventListener('click', async (ev)=>{
+      ev.stopPropagation();
+      const id = btn.getAttribute('data-loaddetail');
+      const wrap = el.querySelector(`[data-extra="${CSS.escape(id)}"]`);
+      const jogo = jogos.find(x=>x.id===id);
+      if(!jogo || !jogo.fixtureId){ wrap.innerHTML = '<div style="font-size:12px;color:var(--txt3)">Sem fixture_id disponível para este jogo.</div>'; return; }
+      wrap.innerHTML = '<div style="font-size:12px;color:var(--txt3)">A carregar...</div>';
+      try{
+        const detalhe = await fetchMatchDetail(jogo.fixtureId, jogo.leagueId, jogo.homeTeam, jogo.awayTeam);
+        wrap.innerHTML = renderDetalheHtml(detalhe, jogo);
+      }catch(err){
+        wrap.innerHTML = '<div style="font-size:12px;color:var(--lose)">Falhou a carregar o detalhe: ' + err.message + '</div>';
+      }
     });
   });
   el.querySelectorAll('[data-check]').forEach(chk=>{
@@ -272,12 +603,12 @@ function renderLigas(){
 }
 
 /* ---------- Banca ---------- */
-async function getBanca(){ try{ const r = await window.storage.get('banca-inicial'); return r? JSON.parse(r.value): null; }catch(e){ return null; } }
-async function setBanca(val){ try{ await window.storage.set('banca-inicial', JSON.stringify(val)); }catch(e){} }
-async function getAjustes(){ try{ const r = await window.storage.get('ajustes'); return r? JSON.parse(r.value): []; }catch(e){ return []; } }
-async function setAjustes(val){ try{ await window.storage.set('ajustes', JSON.stringify(val)); }catch(e){} }
-async function getResultado(id){ try{ const r = await window.storage.get('resultado:'+id); return r? JSON.parse(r.value): null; }catch(e){ return null; } }
-async function setResultado(id,val){ try{ await window.storage.set('resultado:'+id, JSON.stringify(val)); }catch(e){} }
+async function getBanca(){ try{ const r = localStorage.getItem('banca-inicial'); return r? JSON.parse(r): null; }catch(e){ return null; } }
+async function setBanca(val){ try{ localStorage.setItem('banca-inicial', JSON.stringify(val)); }catch(e){ console.error('setBanca falhou', e); } }
+async function getAjustes(){ try{ const r = localStorage.getItem('ajustes'); return r? JSON.parse(r): []; }catch(e){ return []; } }
+async function setAjustes(val){ try{ localStorage.setItem('ajustes', JSON.stringify(val)); }catch(e){ console.error('setAjustes falhou', e); } }
+async function getResultado(id){ try{ const r = localStorage.getItem('resultado:'+id); return r? JSON.parse(r): null; }catch(e){ return null; } }
+async function setResultado(id,val){ try{ localStorage.setItem('resultado:'+id, JSON.stringify(val)); }catch(e){ console.error('setResultado falhou', e); } }
 
 async function renderBanca(){
   const el = document.getElementById('tab-banca');
@@ -303,7 +634,8 @@ async function renderBanca(){
     if(!bet.selecionado || !bet.stake) continue;
     const resultado = await getResultado(j.id);
     if(resultado===null) continue;
-    const stake = parseFloat(bet.stake); const odd = parseFloat(bet.odd) || j.oddDraw;
+    const stake = parseFloat(bet.stake); const odd = parseFloat(bet.odd) || (j.pDraw ? 100/j.pDraw : null);
+    if(!odd) continue;
     const retorno = resultado==='empate' ? stake*(odd-1) : -stake;
     ledger.push({data:j.dateAttr||new Date().toISOString().slice(0,10), tipo:'aposta', jogo:`${j.homeTeam} vs ${j.awayTeam}`, odd, stake, retorno, ganhou:resultado==='empate'});
   }
