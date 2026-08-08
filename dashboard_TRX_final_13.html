@@ -187,6 +187,44 @@ async function fetchPosicoes(leagueId, homeTeam, awayTeam){
   return resultado;
 }
 
+async function fetchClubProfile(teamId, teamName){
+  if(!teamId) return null;
+  const url = `https://www.vitibet.com/index.php?clanek=club-profile&team_id=${teamId}&lang=pt&team_name=${teamName||''}`;
+  const html = await fetchComFallback(url, 15000);
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+
+  // posição: linha destacada (row-active) nas tabelas de classificação
+  let posicao = null;
+  const rowActive = doc.querySelector('tr.row-active');
+  if(rowActive){
+    const primeiraCel = rowActive.querySelector('td');
+    if(primeiraCel) posicao = primeiraCel.textContent.trim().replace('.','');
+  }
+
+  // últimos jogos: secção "Jogos Recentes"
+  const ultimosJogos = [];
+  const heading = Array.from(doc.querySelectorAll('h3')).find(h=>h.textContent.includes('Jogos Recentes'));
+  if(heading){
+    let card = heading.nextElementSibling;
+    if(card){
+      card.querySelectorAll('.match-list-item').forEach(item=>{
+        const data = item.querySelector('.match-date')?.textContent.trim() || '';
+        const spans = item.querySelectorAll('.match-teams > span');
+        const score = item.querySelector('.match-score')?.textContent.trim() || '';
+        if(spans.length>=2){
+          const equipaEBold = Array.from(spans).findIndex(s=>s.classList.contains('team-bold'));
+          const casaFora = equipaEBold===0 ? 'casa' : 'fora';
+          const adversarioSpan = equipaEBold===0 ? spans[1] : spans[0];
+          const adversario = adversarioSpan.textContent.trim();
+          ultimosJogos.push({data, adversario, resultado: score, cf: casaFora});
+        }
+      });
+    }
+  }
+
+  return {posicao, ultimosJogos: ultimosJogos.slice(0,5)};
+}
+
 async function fetchMatchDetail(fixtureId, leagueId, homeTeam, awayTeam){
   const url = `https://www.vitibet.com/index.php?clanek=match-detail&sekce=fotbal&lang=pt&fixture_id=${fixtureId}&league_id=${leagueId||0}`;
   const html = await fetchComFallback(url, 15000);
@@ -217,7 +255,13 @@ async function fetchMatchDetail(fixtureId, leagueId, homeTeam, awayTeam){
   // a página tem 2 pares de team-stats-box (um de H2H agregado, vazio se não há histórico, e outro de forma recente)
   const todasStats = [];
   doc.querySelectorAll('.team-stats-box').forEach(box=>{
-    const nome = box.querySelector('.team-stats-header a')?.textContent.trim() || '?';
+    const linkEl = box.querySelector('.team-stats-header a');
+    const nome = linkEl?.textContent.trim() || '?';
+    let teamId = null;
+    if(linkEl){
+      const m = linkEl.getAttribute('href')?.match(/team_id=(\d+)/);
+      if(m) teamId = m[1];
+    }
     const linhas = {};
     let temDados = false;
     box.querySelectorAll('table tbody tr').forEach(r=>{
@@ -229,7 +273,7 @@ async function fetchMatchDetail(fixtureId, leagueId, homeTeam, awayTeam){
         if(label==='Jogos' && (casa!=='0' || fora!=='0')) temDados = true;
       }
     });
-    todasStats.push({nome, linhas, temDados});
+    todasStats.push({nome, linhas, temDados, teamId});
   });
   // por equipa, prefere a versão com dados reais (Jogos > 0)
   const statsPorEquipa = {};
@@ -242,10 +286,16 @@ async function fetchMatchDetail(fixtureId, leagueId, homeTeam, awayTeam){
 
   // sequência de forma (últimos jogos) a partir dos "form-dots" no cabeçalho do jogo
   const formaPorEquipa = {};
-  doc.querySelectorAll('.match-scoreboard-team').forEach(teamBox=>{
-    const nome = teamBox.querySelector('.club-link')?.textContent.trim();
-    if(!nome) return;
+  const scoreboardTeams = doc.querySelectorAll('.match-scoreboard-team');
+  log('[detalhe] match-scoreboard-team encontrados: ' + scoreboardTeams.length);
+  scoreboardTeams.forEach(teamBox=>{
+    const links = teamBox.querySelectorAll('.club-link');
+    // o 1º link é só o logótipo (sem texto); o nome está no 2º (dentro de um <span>)
+    let nome = '';
+    for(const l of links){ if(l.textContent.trim()){ nome = l.textContent.trim(); break; } }
     const dots = teamBox.querySelectorAll('.form-dot');
+    log('[detalhe] equipa: "' + nome + '" | dots: ' + dots.length);
+    if(!nome) return;
     const seq = Array.from(dots).map(d=>{
       if(d.classList.contains('form-dot-w')) return 'V';
       if(d.classList.contains('form-dot-d')) return 'E';
@@ -254,19 +304,32 @@ async function fetchMatchDetail(fixtureId, leagueId, homeTeam, awayTeam){
     });
     formaPorEquipa[nome] = seq;
   });
+  log('[detalhe] nomes em teamStats: ' + teamStats.map(t=>'"'+t.nome+'"').join(', '));
 
   let posicoes = {};
   try{ posicoes = await fetchPosicoes(leagueId, homeTeam, awayTeam); }catch(e){ /* segue sem posições se falhar */ }
 
-  return {h2h, teamStats, posicoes, formaPorEquipa};
+  // perfis das equipas: posição mais fiável (row-active) + últimos jogos reais
+  const perfis = {};
+  for(const ts of teamStats){
+    if(!ts.teamId) continue;
+    try{
+      const perfil = await fetchClubProfile(ts.teamId, ts.nome.toLowerCase().replace(/\s+/g,'-'));
+      perfis[ts.nome] = perfil;
+    }catch(e){ log('Falhou perfil de ' + ts.nome + ': ' + e.message); }
+  }
+
+  return {h2h, teamStats, posicoes, formaPorEquipa, perfis};
 }
 
 function renderDetalheHtml(det, jogo){
   let html = '';
-  if(det.posicoes && (det.posicoes.casa || det.posicoes.fora)){
+  const posCasa = det.perfis?.[jogo.homeTeam]?.posicao || det.posicoes?.casa;
+  const posFora = det.perfis?.[jogo.awayTeam]?.posicao || det.posicoes?.fora;
+  if(posCasa || posFora){
     html += `<div style="display:flex;gap:14px;margin-bottom:10px;font-size:12px">
-      <div>${jogo.homeTeam}: <strong>${det.posicoes.casa ? det.posicoes.casa+'º':'—'}</strong></div>
-      <div>${jogo.awayTeam}: <strong>${det.posicoes.fora ? det.posicoes.fora+'º':'—'}</strong></div>
+      <div>${jogo.homeTeam}: <strong>${posCasa ? posCasa+'º':'—'}</strong></div>
+      <div>${jogo.awayTeam}: <strong>${posFora ? posFora+'º':'—'}</strong></div>
     </div>`;
   }
   if(det.h2h.length){
@@ -288,11 +351,19 @@ function renderDetalheHtml(det, jogo){
       const mediaSofr = ts.linhas['Média de golos (-)'];
       const seq = (det.formaPorEquipa && det.formaPorEquipa[ts.nome]) || [];
       const seqTxt = seq.length ? seq.slice(-5).join(' - ') : '—';
+      const ultimosJogos = det.perfis?.[ts.nome]?.ultimosJogos || [];
+      const listaJogos = ultimosJogos.length ? ultimosJogos.map(j=>
+        `<div style="font-size:11px;color:var(--txt3);padding:2px 0;border-bottom:1px solid var(--border)">
+          <span style="text-transform:uppercase;font-size:9px;background:var(--surf2);padding:1px 4px;border-radius:3px;margin-right:4px">${j.cf==='casa'?'Casa':'Fora'}</span>
+          vs ${j.adversario} <strong style="font-family:'JetBrains Mono',monospace">${j.resultado}</strong>
+        </div>`
+      ).join('') : '<div style="font-size:11px;color:var(--txt3)">Sem histórico detalhado disponível.</div>';
       html += `<div>
         <div style="font-size:12px;color:var(--txt2);font-weight:500">${ts.nome}</div>
         <div style="font-size:12px;font-family:'JetBrains Mono',monospace;margin:3px 0">${seqTxt}</div>
         <div style="font-size:11px;color:var(--txt3);margin-top:2px">Casa: ${mediaMarc?.casa??'—'} marc./jogo · ${mediaSofr?.casa??'—'} sofr./jogo</div>
-        <div style="font-size:11px;color:var(--txt3)">Fora: ${mediaMarc?.fora??'—'} marc./jogo · ${mediaSofr?.fora??'—'} sofr./jogo</div>
+        <div style="font-size:11px;color:var(--txt3);margin-bottom:6px">Fora: ${mediaMarc?.fora??'—'} marc./jogo · ${mediaSofr?.fora??'—'} sofr./jogo</div>
+        ${listaJogos}
       </div>`;
     });
     html += `</div>`;
