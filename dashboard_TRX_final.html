@@ -5,6 +5,7 @@
   .de-tabbtn{background:none;border:none;color:var(--txt2);font-family:'Oswald',sans-serif;font-size:14px;letter-spacing:0.03em;padding:10px 4px;cursor:pointer;border-bottom:2px solid transparent;white-space:nowrap;}
   .de-tabbtn.active{color:var(--txt);border-bottom-color:var(--gold);}
   .de-btn{border:1px solid var(--border);border-radius:6px;padding:8px 14px;font-size:13px;background:none;color:var(--txt);cursor:pointer;}
+  .de-subday.active{background:var(--gold);color:#1a1206;border-color:var(--gold);font-weight:600;}
   .de-btn:hover{background:var(--surf2);}
   .de-card{background:var(--surf1);border:1px solid var(--border);border-radius:10px;margin-bottom:10px;overflow:hidden;}
   .de-badge{font-size:11px;padding:3px 8px;border-radius:5px;font-weight:600;letter-spacing:0.02em;}
@@ -12,6 +13,7 @@
   .de-log{background:var(--surf2);border:1px solid var(--border);border-radius:8px;padding:10px;font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--txt2);max-height:140px;overflow-y:auto;white-space:pre-wrap;}
 </style>
 <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/dist/tabler-icons.min.css">
 <div class="de-root" style="background:var(--bg);color:var(--txt);padding:1.25rem;border-radius:14px;max-width:720px;">
 <h2 class="sr-only">TRX: consulta automática de jogos com tendência de empate</h2>
 
@@ -32,8 +34,13 @@
 
 <div id="tab-jogos">
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-    <div style="font-size:12px;color:var(--txt3)" id="de-status">Carrega para consultar os jogos reais de amanhã.</div>
+    <div style="font-size:12px;color:var(--txt3)" id="de-status">Carrega para consultar os jogos reais de hoje e amanhã.</div>
     <button class="de-btn" id="de-refresh">Consultar</button>
+  </div>
+  <div style="display:flex;gap:10px;margin-bottom:10px">
+    <button class="de-btn de-subday" data-subday="ontem" style="font-size:12px">Ontem</button>
+    <button class="de-btn de-subday active" data-subday="hoje" style="font-size:12px">Hoje</button>
+    <button class="de-btn de-subday" data-subday="amanha" style="font-size:12px">Amanhã</button>
   </div>
   <div id="de-results"></div>
   <details style="margin-top:14px">
@@ -56,9 +63,9 @@ function fmt(n){return Number(n).toLocaleString('pt-PT',{minimumFractionDigits:2
 /* ---------- Consulta ao vivo (Vitibet) ---------- */
 
 const PROXIES = [
-  (t)=>'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(t),
   (t)=>'https://corsproxy.io/?url=' + encodeURIComponent(t),
   (t)=>'https://api.allorigins.win/raw?url=' + encodeURIComponent(t),
+  (t)=>'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(t),
 ];
 
 async function fetchComFallback(targetUrl, timeoutMs){
@@ -312,20 +319,18 @@ async function fetchMatchDetail(fixtureId, leagueId, homeTeam, awayTeam){
   });
   log('[detalhe] nomes em teamStats: ' + teamStats.map(t=>'"'+t.nome+'"').join(', '));
 
-  let posicoes = {};
-  try{ posicoes = await fetchPosicoes(leagueId, homeTeam, awayTeam); }catch(e){ /* segue sem posições se falhar */ }
-
-  // perfis das equipas: posição mais fiável (row-active) + últimos jogos reais
+  // perfis das equipas: posição (row-active) + últimos jogos reais — pedidos em paralelo, não em série
   const perfis = {};
-  for(const ts of teamStats){
-    if(!ts.teamId) continue;
-    try{
-      const perfil = await fetchClubProfile(ts.teamId, ts.nome.toLowerCase().replace(/\s+/g,'-'));
-      perfis[ts.nome] = perfil;
-    }catch(e){ log('Falhou perfil de ' + ts.nome + ': ' + e.message); }
-  }
+  const pedidosPerfis = teamStats
+    .filter(ts=>ts.teamId)
+    .map(ts=> fetchClubProfile(ts.teamId, ts.nome.toLowerCase().replace(/\s+/g,'-'))
+      .then(perfil=>({nome:ts.nome, perfil}))
+      .catch(e=>{ log('Falhou perfil de ' + ts.nome + ': ' + e.message); return {nome:ts.nome, perfil:null}; })
+    );
+  const resultadosPerfis = await Promise.all(pedidosPerfis);
+  resultadosPerfis.forEach(r=>{ perfis[r.nome] = r.perfil; });
 
-  return {h2h, teamStats, posicoes, formaPorEquipa, perfis};
+  return {h2h, teamStats, formaPorEquipa, perfis};
 }
 
 function formaBadges(seq){
@@ -346,8 +351,8 @@ function resultadoCor(resultado, cf){
 
 function renderDetalheHtml(det, jogo){
   let html = '';
-  const posCasa = det.perfis?.[jogo.homeTeam]?.posicao || det.posicoes?.casa;
-  const posFora = det.perfis?.[jogo.awayTeam]?.posicao || det.posicoes?.fora;
+  const posCasa = det.perfis?.[jogo.homeTeam]?.posicao;
+  const posFora = det.perfis?.[jogo.awayTeam]?.posicao;
   if(posCasa || posFora){
     html += `<div style="display:flex;gap:14px;margin-bottom:10px;font-size:12px">
       <div><i class="ti ti-home" style="font-size:13px;vertical-align:-2px;margin-right:3px;color:var(--txt3)" aria-hidden="true"></i>${jogo.homeTeam}: <strong>${posCasa ? posCasa+'º':'—'}</strong></div>
@@ -408,6 +413,47 @@ function scoreColor(v){
 
 let JOGOS_ATUAIS = [];
 
+const LIMIAR_BACKTEST = 8.5;
+
+function guardarSnapshotBacktest(jogos){
+  try{
+    const hojeStr = new Date().toISOString().slice(0,10);
+    const chave = 'backtest-snapshot:' + hojeStr;
+    // não sobrescreve se já existir snapshot de hoje (evita duplicar ao correr várias vezes no mesmo dia)
+    if(localStorage.getItem(chave)) return;
+    const candidatos = jogos.filter(j=>j.score>=LIMIAR_BACKTEST && j.dia==='hoje').map(j=>({
+      id:j.id, homeTeam:j.homeTeam, awayTeam:j.awayTeam, league:j.league, score:j.score,
+      pHome:j.pHome, pDraw:j.pDraw, pAway:j.pAway, fixtureId:j.fixtureId, leagueId:j.leagueId, resultadoReal:null
+    }));
+    localStorage.setItem(chave, JSON.stringify({data:hojeStr, candidatos}));
+    log('Snapshot de backtest guardado para ' + hojeStr + ': ' + candidatos.length + ' jogos com score >= ' + LIMIAR_BACKTEST);
+  }catch(e){ log('Falhou a guardar snapshot de backtest: ' + e.message); }
+}
+
+function listarSnapshotsBacktest(){
+  const lista = [];
+  for(let i=0;i<localStorage.length;i++){
+    const k = localStorage.key(i);
+    if(k && k.startsWith('backtest-snapshot:')){
+      try{ lista.push(JSON.parse(localStorage.getItem(k))); }catch(e){}
+    }
+  }
+  return lista.sort((a,b)=>b.data.localeCompare(a.data));
+}
+
+async function fetchResultadoReal(fixtureId, leagueId){
+  if(!fixtureId) return null;
+  const url = `https://www.vitibet.com/index.php?clanek=match-detail&sekce=fotbal&lang=pt&fixture_id=${fixtureId}&league_id=${leagueId||0}`;
+  const html = await fetchComFallback(url, 15000);
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  const scoreEl = doc.querySelector('.match-scoreboard-score');
+  if(!scoreEl) return null;
+  const txt = scoreEl.textContent.trim(); // formato "1 - 1" quando já terminou
+  const m = txt.match(/(\d+)\s*-\s*(\d+)/);
+  if(!m) return null; // ainda não terminou (mostra hora, não placar)
+  return {golosCasa: parseInt(m[1]), golosFora: parseInt(m[2]), empate: parseInt(m[1])===parseInt(m[2])};
+}
+
 async function getBet(id){
   try{ const r = localStorage.getItem('aposta:'+id); return r? JSON.parse(r): {selecionado:false,stake:'',odd:''}; }
   catch(e){ return {selecionado:false,stake:'',odd:''}; }
@@ -428,12 +474,19 @@ async function runConsulta(){
   document.getElementById('de-log').textContent = '';
   document.getElementById('de-results').innerHTML = '';
   try{
-    const html = await fetchComFallback('https://www.vitibet.com/index.php?clanek=quicktips&sekce=fotbal&lang=pt&design_version=old', 15000);
-    const doc = new DOMParser().parseFromString(html, 'text/html');
-    window.__DEBUG_ROWS__ = 0;
-    window.__DEBUG_LOG__ = log;
-    let jogos = parseVitibetTable(doc);
-    log('Jogos extraídos no total: ' + jogos.length);
+    let jogos = [];
+    let tentativa = 0;
+    let doc, html;
+    while(tentativa < 2 && jogos.length === 0){
+      tentativa++;
+      if(tentativa>1) log('Nova tentativa (' + tentativa + '/2), a página anterior veio incompleta...');
+      html = await fetchComFallback('https://www.vitibet.com/index.php?clanek=quicktips&sekce=fotbal&lang=pt&design_version=old', 15000);
+      doc = new DOMParser().parseFromString(html, 'text/html');
+      window.__DEBUG_ROWS__ = 0;
+      window.__DEBUG_LOG__ = log;
+      jogos = parseVitibetTable(doc);
+      log('Jogos extraídos no total: ' + jogos.length);
+    }
 
     if(jogos.length === 0){
       log('\\n--- DIAGNÓSTICO: 0 jogos, a investigar ---', 'hdr');
@@ -486,13 +539,15 @@ async function runConsulta(){
     jogos.sort((a,b)=> (a.dia===b.dia) ? (b.score-a.score) : (a.dia==='hoje'?-1:1));
     JOGOS_ATUAIS = jogos;
 
+    guardarSnapshotBacktest(jogos);
+
     if(jogos.length===0){
       status('Não encontrei jogos de hoje/amanhã nesta consulta (pode ser um problema de correspondência de datas).');
       document.getElementById('de-results').innerHTML = '<div class="de-card" style="padding:14px;font-size:13px;color:var(--lose)">Sem jogos para hoje/amanhã. Vê o registo técnico para diagnóstico.</div>';
       return;
     }
     status(jogos.length + ' jogos analisados (Vitibet), ordenados por tendência de empate.');
-    await renderJogosLista(jogos);
+    await renderSubday('hoje');
   }catch(err){
     status('Falhou.');
     log('ERRO: ' + err.message);
@@ -574,11 +629,32 @@ async function renderJogosLista(jogos){
       }
     });
   });
+function stakeSugeridaPercent(score, veredito){
+  if(veredito==='BAIXA CONFIANÇA' || veredito==='NÃO INDICADO' || veredito==='SEM DADOS') return 0;
+  if(veredito==='OBSERVAR') return 0.3;
+  const frac = Math.max(0, Math.min(1, (score-7)/3));
+  return 0.5 + frac*1.0;
+}
+
   el.querySelectorAll('[data-check]').forEach(chk=>{
     chk.addEventListener('change', async ()=>{
       const id = chk.getAttribute('data-check');
       el.querySelector(`[data-stake-row="${CSS.escape(id)}"]`).style.display = chk.checked ? 'flex' : 'none';
-      const bet = await getBet(id); bet.selecionado = chk.checked; await setBet(id, bet);
+      const bet = await getBet(id); bet.selecionado = chk.checked;
+      if(chk.checked && !bet.stake){
+        const jogoAtual = jogos.find(j=>j.id===id);
+        const banca = await getBanca();
+        if(jogoAtual && banca){
+          const pct = stakeSugeridaPercent(jogoAtual.score, jogoAtual.veredito);
+          if(pct>0){
+            const stakeSugerida = (banca * pct/100).toFixed(2);
+            bet.stake = stakeSugerida;
+            const stakeInput = el.querySelector(`[data-stake="${CSS.escape(id)}"]`);
+            if(stakeInput) stakeInput.value = stakeSugerida;
+          }
+        }
+      }
+      await setBet(id, bet);
       renderBanca();
     });
   });
@@ -598,6 +674,85 @@ async function renderJogosLista(jogos){
   });
 }
 document.getElementById('de-refresh').addEventListener('click', runConsulta);
+
+let SUBDAY_ATIVO = 'hoje';
+
+async function renderSubday(dia){
+  SUBDAY_ATIVO = dia;
+  document.querySelectorAll('.de-subday').forEach(b=>b.classList.toggle('active', b.dataset.subday===dia));
+  if(dia==='ontem'){
+    await renderOntem();
+  } else {
+    const filtrados = JOGOS_ATUAIS.filter(j=>j.dia===dia);
+    if(filtrados.length===0 && JOGOS_ATUAIS.length===0){
+      document.getElementById('de-results').innerHTML = '<div class="de-card" style="padding:14px;font-size:13px;color:var(--txt3)">Carrega em "Consultar" para veres os jogos de ' + (dia==='hoje'?'hoje':'amanhã') + '.</div>';
+    } else {
+      await renderJogosLista(filtrados);
+    }
+  }
+}
+
+async function renderOntem(){
+  const el = document.getElementById('de-results');
+  el.innerHTML = '<div class="de-card" style="padding:14px;font-size:13px;color:var(--txt3)">A carregar resultados de ontem...</div>';
+
+  const hoje = new Date();
+  const ontem = new Date(hoje.getTime() - 86400000);
+  const ontemStr = ontem.toISOString().slice(0,10);
+  const chave = 'backtest-snapshot:' + ontemStr;
+  let snapshot = null;
+  try{ snapshot = JSON.parse(localStorage.getItem(chave)); }catch(e){}
+
+  if(!snapshot || !snapshot.candidatos || snapshot.candidatos.length===0){
+    el.innerHTML = `<div class="de-card" style="padding:14px;font-size:13px;color:var(--txt3)">Sem jogos guardados de ontem (score ≥ ${LIMIAR_BACKTEST}). Isto começa a preencher-se a partir de hoje, à medida que corres consultas diariamente — volta amanhã para veres o primeiro dia com histórico.</div>`;
+    return;
+  }
+
+  el.innerHTML = '';
+  let acertos = 0, resolvidos = 0;
+  for(const c of snapshot.candidatos){
+    let resultado = c.resultadoReal;
+    if(!resultado){
+      try{
+        resultado = await fetchResultadoReal(c.fixtureId, c.leagueId);
+        if(resultado){ c.resultadoReal = resultado; }
+      }catch(e){ log('Falhou resultado real de ' + c.homeTeam + ' vs ' + c.awayTeam + ': ' + e.message); }
+    }
+    if(resultado){
+      resolvidos++;
+      if(resultado.empate) acertos++;
+    }
+    const card = document.createElement('div');
+    card.className = 'de-card';
+    let badge = '<span class="de-badge" style="background:var(--surf2);color:var(--txt3)">A decorrer/por confirmar</span>';
+    if(resultado){
+      badge = resultado.empate
+        ? `<span class="de-badge" style="background:#1D4D33;color:var(--win)">${resultado.golosCasa}:${resultado.golosFora} EMPATE</span>`
+        : `<span class="de-badge" style="background:#4D1D1D;color:var(--lose)">${resultado.golosCasa}:${resultado.golosFora} não empate</span>`;
+    }
+    card.innerHTML = `<div style="padding:12px 14px;display:flex;justify-content:space-between;align-items:center;gap:10px">
+      <div>
+        <div style="font-size:14px;font-weight:500">${c.homeTeam} <span style="color:var(--txt3);font-weight:400">vs</span> ${c.awayTeam}</div>
+        <div style="font-size:11px;color:var(--txt3)">${c.league} · score ${c.score} · empate previsto ${c.pDraw}%</div>
+      </div>
+      ${badge}
+    </div>`;
+    el.appendChild(card);
+  }
+  // atualiza o snapshot guardado com os resultados já confirmados, para não repetir pedidos no futuro
+  try{ localStorage.setItem(chave, JSON.stringify(snapshot)); }catch(e){}
+
+  const resumo = document.createElement('div');
+  resumo.style.cssText = 'font-size:12px;color:var(--txt3);margin-bottom:10px';
+  resumo.textContent = resolvidos>0
+    ? `Backtest de ontem: ${acertos}/${resolvidos} jogos com score ≥${LIMIAR_BACKTEST} terminaram em empate (${(acertos/resolvidos*100).toFixed(0)}%).`
+    : 'Resultados ainda não confirmados para nenhum destes jogos.';
+  el.insertBefore(resumo, el.firstChild);
+}
+
+document.querySelectorAll('.de-subday').forEach(btn=>{
+  btn.addEventListener('click', ()=> renderSubday(btn.dataset.subday));
+});
 
 /* ---------- Ligas ---------- */
 const LEAGUE_STATS_OWN = [
@@ -699,6 +854,18 @@ async function renderBanca(){
     ${chartSvg}
     <div style="font-size:12px;color:var(--txt3);text-transform:uppercase;margin:14px 0 6px">Movimentos</div>
     ${rows ? `<table style="width:100%;border-collapse:collapse"><tr style="color:var(--txt3);font-size:10px;text-align:left"><th style="font-weight:400">Data</th><th style="font-weight:400">Jogo/motivo</th><th style="font-weight:400;text-align:right">Stake</th><th style="font-weight:400;text-align:right">Odd</th><th style="font-weight:400;text-align:right">Retorno</th><th style="font-weight:400;text-align:right">Saldo</th></tr>${rows}</table>` : `<div style="font-size:13px;color:var(--txt3)">Ainda sem movimentos com resultado conhecido. Marca o resultado dos jogos apostados quando terminarem (em breve nesta secção).</div>`}
+
+    <div style="font-size:12px;color:var(--txt3);text-transform:uppercase;margin:16px 0 6px">Modelo de stake (gestão de risco)</div>
+    <div style="font-size:12px;color:var(--txt2);line-height:1.6;background:var(--surf2);border-radius:8px;padding:10px 12px">
+      A stake sugerida escala com a confiança do score (contínuo, não em degraus):
+      <div style="margin-top:6px;font-family:'JetBrains Mono',monospace;font-size:11px">
+        Score 7.0 → 0.5% da banca<br>
+        Score 10.0 → 1.5% da banca<br>
+        OBSERVAR → 0.3% fixo<br>
+        NÃO INDICADO / BAIXA CONFIANÇA → sem stake sugerida
+      </div>
+      <div style="margin-top:6px;color:var(--txt3)">Preenchida automaticamente ao marcar ✓ num jogo (podes sempre ajustar à mão).</div>
+    </div>
     <div style="font-size:12px;color:var(--txt3);text-transform:uppercase;margin:16px 0 6px">Ajuste manual</div>
     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
       <input class="de-input" type="number" step="0.5" id="de-ajuste-valor" placeholder="+50 ou -20" style="width:100px">
